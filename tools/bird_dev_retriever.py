@@ -38,14 +38,11 @@ logger = logging.getLogger(__name__)
 
 # ==================== 配置 ====================
 
-BIRD_DEV_PG_URI = os.getenv(
-    "BIRD_DEV_PG_URI",
-    "postgresql+psycopg2://postgres:123456@10.10.181.38:55432/bird_dev",
-)
+BIRD_DEV_PG_URI = os.getenv("BIRD_DEV_PG_URI")
 
-EMBEDDING_API_URL = os.getenv("EMBEDDING_API_URL", "http://10.10.185.22:8080/v1")
+EMBEDDING_API_URL = os.getenv("EMBEDDING_API_URL", "http://10.10.185.22:28080/v1")
 EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", "no-key")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "jina-embeddings-v3-Q8_0.gguf")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "bge-m3-FP16.gguf")
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1024"))
 
 # Schema 名称（与嵌入脚本 bird_dev_single_db_embed_v2.py 保持一致）
