@@ -19,9 +19,20 @@ import re
 import sys
 import time
 import traceback
+import warnings
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
+
+warnings.filterwarnings(
+    "ignore",
+    message=(
+        r"\[EXPERIMENTAL\] feature "
+        r"FeatureName\.JSON_SCHEMA_FOR_FUNC_DECL is enabled\."
+    ),
+    category=UserWarning,
+    module=r"google\.adk\.tools\.function_tool",
+)
 
 # 支持直接运行 (python agent.py) 时的相对导入
 if not __package__:
@@ -359,6 +370,71 @@ class AdkAgent:
             return content
         allowed = max(0, 2 - trailing_nls)
         return ("\n" * allowed) + content.lstrip("\n")
+
+    @staticmethod
+    def _dedup_stream_text(raw_text: str, received_text: str) -> str:
+        """Return only the unseen suffix from mixed delta/cumulative streams.
+
+        Some OpenAI-compatible gateways send cumulative text even when ADK marks
+        an event as partial, then send the same assistant message once more as a
+        non-partial event.  Treating every partial payload as a delta duplicates
+        entire planning and answer blocks in the UI.
+        """
+        if not raw_text:
+            return ""
+        if not received_text:
+            return raw_text
+        if raw_text == received_text or received_text.endswith(raw_text):
+            return ""
+        if raw_text.startswith(received_text):
+            return raw_text[len(received_text) :]
+
+        max_overlap = min(len(received_text), len(raw_text))
+        for overlap in range(max_overlap, 11, -1):
+            if received_text.endswith(raw_text[:overlap]):
+                return raw_text[overlap:]
+        return raw_text
+
+    @staticmethod
+    def _extract_visible_plan(text: str) -> str:
+        """Extract the last protocol-compliant plan from a noisy model turn."""
+        marker = "我来分析一下您的需求："
+        marker_at = (text or "").rfind(marker)
+        if marker_at < 0:
+            return ""
+        return text[marker_at:].strip()
+
+    @staticmethod
+    def _extract_visible_answer(text: str) -> str:
+        """Remove tool-between self-talk and keep the final user-facing answer."""
+        cleaned = (text or "").strip()
+        if not cleaned:
+            return ""
+
+        heading = re.compile(
+            r"(?im)^#{1,4}\s*(?:回答|结果|最终答案|answer|result)\s*:?[ \t]*$"
+        )
+        matches = list(heading.finditer(cleaned))
+        if matches:
+            start = matches[-1].start()
+            separator = cleaned.rfind("---", 0, start)
+            if separator >= 0:
+                start = separator
+            return cleaned[start:].strip()
+
+        # When the model omits a heading, discard a leading English self-talk
+        # paragraph if a Chinese user-facing conclusion follows it.
+        self_talk = re.match(
+            r"(?is)^(?:the user\b|let me\b|now i\b|good[, ]|this is\b|"
+            r"i need\b|the query\b|the final sql\b|sql submitted\b)",
+            cleaned,
+        )
+        if self_talk:
+            cjk = re.search(r"[\u3400-\u9fff]", cleaned)
+            if cjk:
+                line_start = cleaned.rfind("\n", 0, cjk.start()) + 1
+                return cleaned[line_start:].strip()
+        return cleaned
 
     @staticmethod
     def _unwrap_tool_response(content: str) -> str:
@@ -754,7 +830,7 @@ class AdkAgent:
                 "  export DATABASE_URI='mysql+pymysql://user:pass@host:port/db'"
             )
 
-        set_database_uri(database_uri, session_id)
+        set_database_uri(database_uri, session_id, datasource_id=datasource_id)
 
         model = create_model()
         logger.info(
@@ -1007,8 +1083,10 @@ class AdkAgent:
 
         # 文本输出状态：partial 优先，non-partial 作为回退。
         emitted_text = ""
+        received_text = ""
         has_seen_partial_text = False
         skipped_text_chunks = 0
+        pending_text_buffer = ""
 
         logger.info(f"开始流式响应 - 会话: {session_id}, 查询: {query[:100]}")
 
@@ -1082,6 +1160,18 @@ class AdkAgent:
 
                         # 从 PLANNING 切换到 EXECUTION
                         if tracker.current_phase == Phase.PLANNING:
+                            visible_plan = self._extract_visible_plan(received_text)
+                            if visible_plan:
+                                if not tracker.planning_opened:
+                                    if not await self._open_thinking_section(response):
+                                        connection_closed = True
+                                        break
+                                    tracker.planning_opened = True
+                                if not await self._safe_write(response, visible_plan):
+                                    connection_closed = True
+                                    break
+                                answer_collector.append(visible_plan)
+                                emitted_text += visible_plan
                             if not await self._close_sections(response, tracker):
                                 connection_closed = True
                                 break
@@ -1091,6 +1181,9 @@ class AdkAgent:
 
                         if not tracker.has_tool_called:
                             tracker.has_tool_called = True
+                        # Any text before another tool call was intermediate
+                        # orchestration, not the final user-facing answer.
+                        pending_text_buffer = ""
 
                         tool_msg = self._format_tool_call(name, args)
                         if tool_msg:
@@ -1126,64 +1219,41 @@ class AdkAgent:
                     # -- 文本输出（partial 优先，non-partial 回退）--
                     elif part.text:
                         raw_text = part.text
-
                         if is_partial:
                             has_seen_partial_text = True
-                            token_text = raw_text
+                        token_text = self._dedup_stream_text(raw_text, received_text)
+                        if token_text:
+                            received_text += token_text
                         else:
-                            # 某些模型/网关会把文本放在 non-partial 事件中；
-                            # 若已输出过 partial 文本，则尽量只输出 non-partial 的增量。
-                            if not has_seen_partial_text:
-                                token_text = raw_text
-                            elif raw_text == emitted_text:
-                                skipped_text_chunks += 1
-                                continue
-                            elif emitted_text and raw_text.startswith(emitted_text):
-                                token_text = raw_text[len(emitted_text) :]
-                            elif raw_text and raw_text in emitted_text[-500:]:
-                                skipped_text_chunks += 1
-                                continue
-                            else:
-                                token_text = raw_text
+                            skipped_text_chunks += 1
+                            continue
 
                         if not token_text:
                             continue
-
-                        # 阶段检测
-                        new_phase = self._detect_phase(token_text, tracker)
-
-                        # 阶段切换
-                        if new_phase != tracker.current_phase:
-                            closed = await self._handle_phase_transition(
-                                response, tracker, new_phase
-                            )
-                            if not closed:
-                                connection_closed = True
-                                break
-
-                        # 空行 cap：若已输出末尾连续换行数 ≥ 2，则吞掉新块的前导换行，
-                        # 避免 LLM 文本叠加产生多个空行导致工具 header 上方堆空行。
-                        token_text = self._cap_leading_newlines(
-                            token_text, answer_collector
-                        )
-                        if not token_text:
+                        if not tracker.has_tool_called:
+                            # Hold the complete planning turn until the first
+                            # tool call, then extract only the required marker.
                             continue
-
-                        # 输出文本
-                        if not await self._safe_write(response, token_text):
-                            connection_closed = True
-                            break
-
-                        answer_collector.append(token_text)
-                        # 同时追加到报告内容收集器（供 save_report 自动提取）
-                        append_report_content(token_text)
-                        emitted_text += token_text
-                        token_count += 1
+                        pending_text_buffer += token_text
 
                 if connection_closed:
                     break
 
                 await asyncio.sleep(0)
+
+            if not connection_closed:
+                visible_answer = self._extract_visible_answer(pending_text_buffer)
+                if visible_answer:
+                    visible_answer = self._cap_leading_newlines(
+                        visible_answer, answer_collector
+                    )
+                    if await self._safe_write(response, visible_answer):
+                        answer_collector.append(visible_answer)
+                        append_report_content(visible_answer)
+                        emitted_text += visible_answer
+                        token_count += 1
+                    else:
+                        connection_closed = True
 
         except asyncio.CancelledError:
             logger.info(f"流被取消 - 会话: {session_id}")
@@ -1486,6 +1556,7 @@ class AgentService:
         print_output: bool = True,
         max_llm_calls: int = 150,
         preserve_context: bool = False,
+        datasource_id: int = None,
     ) -> dict:
         """
         运行 Agent 处理单个查询。
@@ -1494,6 +1565,7 @@ class AgentService:
             question: 用户问题
             database_uri: SQLAlchemy 连接字符串
             session_id: 会话 ID（用于隔离 session state）
+            datasource_id: 可选的 AIX 数据源 ID（用于限定向量召回）
             evidence: 补充信息（可选，会拼接到 prompt）
             print_output: 是否在终端输出工具调用详情
             max_llm_calls: LLM 最大调用次数
@@ -1510,7 +1582,11 @@ class AgentService:
         """
         # ---- 环境准备 ----
         started_at = time.perf_counter()
-        set_database_uri(database_uri, session_id)
+        set_database_uri(
+            database_uri,
+            session_id,
+            datasource_id=datasource_id,
+        )
         if not preserve_context:
             reset_linked_schema(session_id)
         reset_sql_execution_trace(session_id)
@@ -1553,7 +1629,18 @@ class AgentService:
         sql_attempt_records: list[dict] = []
         text_parts: list[str] = []
         emitted_text = ""
+        received_text = ""
         has_seen_partial_text = False
+        has_tool_called = False
+        pending_text_buffer = ""
+
+        def prepare_text(raw_text: str) -> str:
+            nonlocal received_text
+            token_text = AdkAgent._dedup_stream_text(raw_text, received_text)
+            if not token_text:
+                return ""
+            received_text += token_text
+            return token_text
 
         try:
             async for event in runner.run_async(
@@ -1573,17 +1660,11 @@ class AgentService:
                 if not hasattr(event.content, "parts"):
                     if hasattr(event.content, "text") and event.content.text:
                         raw_text = event.content.text
-                        token_text = self._dedup_text(
-                            raw_text, emitted_text, is_partial, has_seen_partial_text
-                        )
                         if is_partial:
                             has_seen_partial_text = True
-                        if token_text:
-                            if print_output:
-                                _safe_print(token_text, end="", flush=True)
-                            text_parts.append(token_text)
-                            append_report_content(token_text)
-                            emitted_text += token_text
+                        token_text = prepare_text(raw_text)
+                        if token_text and has_tool_called:
+                            pending_text_buffer += token_text
                     continue
 
                 for part in event.content.parts:
@@ -1591,6 +1672,16 @@ class AgentService:
                     if hasattr(part, "function_call") and part.function_call:
                         fc = part.function_call
                         args = dict(fc.args) if fc.args else {}
+                        if not has_tool_called:
+                            visible_plan = AdkAgent._extract_visible_plan(received_text)
+                            if visible_plan:
+                                if print_output:
+                                    _safe_print(visible_plan, end="", flush=True)
+                                text_parts.append(visible_plan)
+                                append_report_content(visible_plan)
+                                emitted_text += visible_plan
+                        has_tool_called = True
+                        pending_text_buffer = ""
 
                         if print_output:
                             msg = AdkAgent._format_tool_call(fc.name, args)
@@ -1636,17 +1727,19 @@ class AgentService:
                     # -- 文本 --
                     elif hasattr(part, "text") and part.text:
                         raw_text = part.text
-                        token_text = self._dedup_text(
-                            raw_text, emitted_text, is_partial, has_seen_partial_text
-                        )
                         if is_partial:
                             has_seen_partial_text = True
-                        if token_text:
-                            if print_output:
-                                _safe_print(token_text, end="", flush=True)
-                            text_parts.append(token_text)
-                            append_report_content(token_text)
-                            emitted_text += token_text
+                        token_text = prepare_text(raw_text)
+                        if token_text and has_tool_called:
+                            pending_text_buffer += token_text
+
+            visible_answer = AdkAgent._extract_visible_answer(pending_text_buffer)
+            if visible_answer:
+                if print_output:
+                    _safe_print(visible_answer, end="", flush=True)
+                text_parts.append(visible_answer)
+                append_report_content(visible_answer)
+                emitted_text += visible_answer
 
         except Exception as e:
             logger.error(f"AgentService.run_query 异常: {e}", exc_info=True)
@@ -1716,20 +1809,8 @@ class AgentService:
     def _dedup_text(
         raw_text: str, emitted_text: str, is_partial: bool, has_seen_partial: bool
     ) -> str:
-        if is_partial:
-            return raw_text
-        if not has_seen_partial:
-            return raw_text
-        if not raw_text:
-            return ""
-        if raw_text == emitted_text:
-            return ""
-        # 最终 non-partial 事件常常携带「累计结尾段落」——用后缀匹配盖长文本场景
-        if emitted_text.endswith(raw_text):
-            return ""
-        if emitted_text and raw_text.startswith(emitted_text):
-            return raw_text[len(emitted_text):]
-        return raw_text
+        del is_partial, has_seen_partial
+        return AdkAgent._dedup_stream_text(raw_text, emitted_text)
 
 
 # ==================== 独立运行模式 ====================
@@ -1761,7 +1842,12 @@ async def run_standalone(query: str = None):
     if db:
         print(f"\n✅ 数据库已连接: {db.dialect}")
         tables = db.get_usable_table_names()
-        print(f"📊 可用表: {', '.join(tables)}\n")
+        if tables:
+            print(f"📊 可用表: {', '.join(tables)}\n")
+        elif db.dialect == "postgresql":
+            print("📊 当前尚未选择业务 Schema，将由工作流自动定位\n")
+        else:
+            print("📊 当前数据库没有可用表\n")
 
     svc = AgentService()
 

@@ -38,6 +38,11 @@ logger = logging.getLogger(__name__)
 _db_instance: Optional[SQLDatabase] = None
 _session_id: str = "default"
 
+# datasource_id belongs to the AIX metadata database, not to the active user
+# database connection.  Keep it per session so vector recall can be scoped to
+# the datasource selected by the caller.
+_datasource_ids: dict[str, int] = {}
+
 # 每个会话的链接架构（data-link 技能使用），格式: session_id -> set of "table.column"
 _linked_schema: dict = {}
 
@@ -284,7 +289,11 @@ def reset_final_sql(session_id: str = None) -> None:
     _final_sql.pop(sid, None)
 
 
-def set_database_uri(database_uri: str, session_id: str = None):
+def set_database_uri(
+    database_uri: str,
+    session_id: str = None,
+    datasource_id: int = None,
+):
     """
     设置数据库连接 URI（供 agent.py 调用）
 
@@ -292,10 +301,15 @@ def set_database_uri(database_uri: str, session_id: str = None):
         database_uri: SQLAlchemy 格式的数据库 URI，
                       例如 'mysql+pymysql://user:pass@host:port/db'
         session_id: 可选的会话 ID，用于工具调用管理
+        datasource_id: 可选的 AIX 数据源 ID，用于限定元数据向量召回范围
     """
     global _db_instance, _session_id
     _db_instance = SQLDatabase.from_uri(database_uri, sample_rows_in_table_info=_EXAMPLE_LIMIT)
     _session_id = session_id or "default"
+    if datasource_id is not None:
+        set_datasource_context(datasource_id, _session_id)
+    else:
+        _datasource_ids.pop(_session_id, None)
     logger.info(f"数据库已连接: dialect={_db_instance.dialect}, session={_session_id}")
 
 
@@ -318,12 +332,37 @@ def _get_session_id() -> str:
     return _session_id
 
 
+def set_datasource_context(datasource_id: int, session_id: str = None) -> None:
+    """Bind an AIX datasource id to a tool session."""
+    sid = session_id or _get_session_id()
+    if isinstance(datasource_id, bool) or int(datasource_id) <= 0:
+        raise ValueError("datasource_id must be a positive integer")
+    _datasource_ids[sid] = int(datasource_id)
+
+
+def get_datasource_context(session_id: str = None) -> Optional[int]:
+    """Return the AIX datasource id associated with a tool session."""
+    sid = session_id or _get_session_id()
+    return _datasource_ids.get(sid)
+
+
 def _infer_current_db_id(db: Optional[SQLDatabase] = None) -> str:
     """从当前活跃数据库连接推断 db_id；失败时回退到 BIRD_DEV_DB_ID。"""
     current_db = db or _get_database()
     if current_db is not None:
         try:
             dialect = getattr(current_db, "dialect", "")
+            if dialect == "postgresql":
+                # BIRD 的每个数据集在共享 PostgreSQL 实例中对应一个 schema。
+                # db_search 切换后，SQLDatabase 会把当前 schema 保存在 _schema；
+                # 这里必须优先使用它，否则 PostgreSQL 永远无法命中 BIRD 向量库。
+                schema = (getattr(current_db, "_schema", None) or "").strip()
+                if schema and schema not in {
+                    "public",
+                    "pg_catalog",
+                    "information_schema",
+                }:
+                    return schema
             raw_db = current_db._engine.url.database or ""
             if dialect == "sqlite" and raw_db:
                 db_id = Path(raw_db).stem.strip()
@@ -1567,15 +1606,22 @@ def sql_db_table_relationship(table_names: str = "") -> str:
         return f"获取表关系失败: {str(e)[:100]}"
 
 
-def _get_struct_keys_for_tables(retrieval_result, inspector) -> list:
+def _get_struct_keys_for_tables(
+    retrieval_result,
+    inspector,
+    recalled_table_names: Optional[list[str]] = None,
+) -> list:
     """
     为 sql_db_value_lookup 召回的表附加主键和外键信息。
     返回格式化的输出行列表；若无结构键则返回空列表。
     同时将结构键描述写入 _col_descriptions 缓存，供 build_linked_mschema 使用。
     """
-    if retrieval_result is None or not retrieval_result.tables:
-        return []
-    recalled_tables = [t.table_name for t in retrieval_result.tables if t.table_name]
+    recalled_tables = list(recalled_table_names or [])
+    if retrieval_result is not None and retrieval_result.tables:
+        recalled_tables.extend(
+            t.table_name for t in retrieval_result.tables if t.table_name
+        )
+    recalled_tables = list(dict.fromkeys(recalled_tables))
     if not recalled_tables:
         return []
 
@@ -1634,6 +1680,104 @@ def _get_struct_keys_for_tables(retrieval_result, inspector) -> list:
     return lines
 
 
+def _normalize_recall_text(value: str) -> str:
+    """Normalize identifiers/comments for the dependency-free schema fallback."""
+    text = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", str(value or ""))
+    text = text.replace("_", " ").lower()
+    return " ".join(re.findall(r"[^\W_]+", text, flags=re.UNICODE))
+
+
+def _recall_tokens(value: str) -> set[str]:
+    """Tokenize recall text with a small plural normalization for identifiers."""
+    tokens: set[str] = set()
+    for token in _normalize_recall_text(value).split():
+        if len(token) > 4 and token.endswith("ies"):
+            token = token[:-3] + "y"
+        elif len(token) > 3 and token.endswith("s") and not token.endswith("ss"):
+            token = token[:-1]
+        tokens.add(token)
+    return tokens
+
+
+def _local_schema_recall(phrase: str, inspector, tables: list[str]) -> list[dict]:
+    """Recall columns by local names/comments when vector backends are unavailable.
+
+    This is deliberately a conservative lexical fallback.  It makes the normal
+    workflow usable without leaking vector-backend failures into the model, but
+    leaves semantic expansion to AIX/BIRD retrieval when either is available.
+    """
+    normalized_phrase = _normalize_recall_text(phrase)
+    phrase_tokens = _recall_tokens(phrase)
+    if not normalized_phrase or not phrase_tokens:
+        return []
+
+    candidates: list[dict] = []
+    for table_name in tables:
+        table_tokens = _recall_tokens(table_name)
+        try:
+            columns = inspector.get_columns(table_name)
+        except Exception as exc:
+            logger.debug("本地架构召回跳过表 %s: %s", table_name, exc)
+            continue
+
+        for column in columns:
+            column_name = str(column.get("name") or "")
+            comment = str(column.get("comment") or "")
+            normalized_column = _normalize_recall_text(column_name)
+            normalized_comment = _normalize_recall_text(comment)
+            column_tokens = _recall_tokens(column_name)
+            comment_tokens = _recall_tokens(comment)
+            business_tokens = column_tokens | comment_tokens
+            overlap = phrase_tokens & (business_tokens | table_tokens)
+            if not overlap:
+                continue
+
+            coverage = len(overlap) / len(phrase_tokens)
+            precision = len(phrase_tokens & business_tokens) / max(
+                1, len(business_tokens)
+            )
+            score = 0.55 * coverage + 0.25 * precision
+            if normalized_phrase == normalized_column:
+                score += 0.25
+            elif normalized_phrase in normalized_column:
+                score += 0.18
+            elif normalized_phrase and normalized_phrase in normalized_comment:
+                score += 0.12
+            if table_tokens & phrase_tokens:
+                score += 0.05
+
+            # Multi-word partial matches are the main source of invalid recall
+            # (e.g. "charter school" matching every column/value containing
+            # only "school").  Keep partial matches only for the common
+            # "<business object> name" shorthand.
+            if len(phrase_tokens) > 1 and coverage < 1.0:
+                missing = phrase_tokens - overlap
+                name_shorthand = missing <= {"name"} and bool(
+                    column_tokens & phrase_tokens
+                )
+                if normalized_phrase not in normalized_column and not name_shorthand:
+                    continue
+            candidates.append(
+                {
+                    "table_name": table_name,
+                    "column_name": column_name,
+                    "column_type": str(column.get("type") or "?"),
+                    "comment": comment,
+                    "score": min(score, 0.99),
+                }
+            )
+
+    candidates.sort(
+        key=lambda item: (
+            -item["score"],
+            item["table_name"].lower(),
+            item["column_name"].lower(),
+        )
+    )
+    max_hits = max(1, int(os.getenv("LOCAL_SCHEMA_RECALL_TOP_K", "15")))
+    return candidates[:max_hits]
+
+
 def sql_db_value_lookup(phrase: str) -> str:
     """
     对单个短语/关键词进行 BM25+向量混合检索，返回供模型消费的召回摘要字符串。
@@ -1676,32 +1820,93 @@ def sql_db_value_lookup(phrase: str) -> str:
 
         tables = list(db.get_usable_table_names())
 
-        # 对短语整体做混合检索（BM25 + 向量），保留完整语义。
-        vector_recall_text = ""
-        vector_recall_xml = ""
+        # 对短语整体做向量检索。优先使用 aix_db 中与当前 datasource_id
+        # 关联的字段向量；未配置 AIX 服务、调用失败或无命中时回退 BIRD，
+        # 最后再使用本地列名/注释匹配。每层异常必须隔离，不能阻断下一层。
+        aix_recall_result = None
+        aix_recall_hits: list = []
         retrieval_result = None
+        local_schema_hits: list[dict] = []
         profile = get_experiment_profile()
         current_db_id = _infer_current_db_id(db)
-        try:
-            if not profile.get("disable_hybrid_retrieval"):
-                from .bird_dev_retriever import hybrid_retrieve, format_retrieval_as_text, format_retrieval_as_xml
-                if current_db_id:
-                    retrieval_result = hybrid_retrieve(phrase, db_id=current_db_id)
-                else:
-                    logger.warning("未能推断 BIRD dev db_id，跳过混合检索")
-                if retrieval_result is not None and retrieval_result.tables:
-                    vector_recall_text = format_retrieval_as_text(retrieval_result)
-                    vector_recall_xml = format_retrieval_as_xml(retrieval_result)
-                    logger.info("混合检索召回: %d 表, %d 列, %d 值",
-                                len(retrieval_result.tables),
-                                len(retrieval_result.columns),
-                                len(retrieval_result.values))
-                else:
-                    logger.info("混合检索未返回结果")
-            else:
-                logger.info("experiment profile=%s: hybrid retrieval disabled", profile["name"])
-        except Exception as vec_err:
-            logger.warning("混合检索失败: %s", vec_err)
+        if not profile.get("disable_hybrid_retrieval"):
+            try:
+                from services.vector_recall_service import get_vector_recall_service
+
+                datasource_id = get_datasource_context()
+                if datasource_id is None:
+                    configured_id = os.getenv("AIX_DATASOURCE_ID", "").strip()
+                    if configured_id:
+                        datasource_id = int(configured_id)
+
+                aix_service = get_vector_recall_service(required=False)
+                if aix_service is not None and datasource_id is not None:
+                    aix_recall_result = aix_service.recall(
+                        phrase,
+                        datasource_id=datasource_id,
+                        top_k=int(os.getenv("AIX_VECTOR_RECALL_TOP_K", "15")),
+                        min_similarity=float(
+                            os.getenv("AIX_VECTOR_RECALL_MIN_SIMILARITY", "0")
+                        ),
+                    )
+                    column_names_by_table: dict[str, set[str]] = {}
+                    for hit in aix_recall_result.hits:
+                        if hit.table_name not in tables:
+                            continue
+                        if hit.table_name not in column_names_by_table:
+                            try:
+                                column_names_by_table[hit.table_name] = {
+                                    str(col.get("name") or "")
+                                    for col in inspector.get_columns(hit.table_name)
+                                }
+                            except Exception:
+                                column_names_by_table[hit.table_name] = set()
+                        if hit.field_name in column_names_by_table[hit.table_name]:
+                            aix_recall_hits.append(hit)
+                    dropped_hits = len(aix_recall_result.hits) - len(aix_recall_hits)
+                    if dropped_hits:
+                        logger.warning(
+                            "丢弃 %d 个与当前真实 Schema 不一致的 AIX 召回字段",
+                            dropped_hits,
+                        )
+                    logger.info(
+                        "aix_db 向量召回: datasource_id=%s, %d 字段",
+                        datasource_id,
+                        len(aix_recall_hits),
+                    )
+            except Exception as aix_err:
+                logger.warning("AIX 向量召回失败，尝试 BIRD 召回: %s", aix_err)
+
+            if not aix_recall_hits:
+                try:
+                    from .bird_dev_retriever import hybrid_retrieve
+
+                    if current_db_id and os.getenv("BIRD_DEV_PG_URI", "").strip():
+                        retrieval_result = hybrid_retrieve(phrase, db_id=current_db_id)
+                    elif not current_db_id:
+                        logger.info("未能推断 BIRD dev db_id，跳过 BIRD 混合检索")
+                    else:
+                        logger.info("未配置 BIRD_DEV_PG_URI，跳过 BIRD 混合检索")
+                    if retrieval_result is not None and retrieval_result.tables:
+                        logger.info(
+                            "BIRD 混合检索召回: %d 表, %d 列, %d 值",
+                            len(retrieval_result.tables),
+                            len(retrieval_result.columns),
+                            len(retrieval_result.values),
+                        )
+                    else:
+                        logger.info("BIRD 向量召回未返回结果")
+                except Exception as bird_err:
+                    logger.warning("BIRD 向量召回失败，使用本地架构召回: %s", bird_err)
+        else:
+            logger.info("experiment profile=%s: hybrid retrieval disabled", profile["name"])
+
+        if not (
+            aix_recall_hits
+            or (retrieval_result and retrieval_result.columns)
+        ):
+            local_schema_hits = _local_schema_recall(phrase, inspector, tables)
+            logger.info("本地架构召回: %d 字段", len(local_schema_hits))
 
 
         text_type_names = {"TEXT", "VARCHAR", "CHAR", "NVARCHAR", "NCHAR", "CLOB", "STRING", "NTEXT"}
@@ -1720,7 +1925,33 @@ def sql_db_value_lookup(phrase: str) -> str:
             except Exception:
                 continue
 
-        if not table_text_cols:
+        # SQL LIKE 值检索先查向量命中的字段，再查其余文本字段。
+        ordered_table_text_cols: dict[str, list[str]] = {}
+        if aix_recall_hits:
+            for hit in aix_recall_hits:
+                text_cols = table_text_cols.get(hit.table_name, [])
+                if hit.field_name in text_cols:
+                    ordered_table_text_cols.setdefault(hit.table_name, [])
+                    if hit.field_name not in ordered_table_text_cols[hit.table_name]:
+                        ordered_table_text_cols[hit.table_name].append(hit.field_name)
+        for hit in local_schema_hits:
+            text_cols = table_text_cols.get(hit["table_name"], [])
+            if hit["column_name"] in text_cols:
+                ordered_table_text_cols.setdefault(hit["table_name"], [])
+                if hit["column_name"] not in ordered_table_text_cols[hit["table_name"]]:
+                    ordered_table_text_cols[hit["table_name"]].append(hit["column_name"])
+        for table_name, text_cols in table_text_cols.items():
+            ordered_table_text_cols.setdefault(table_name, [])
+            ordered_table_text_cols[table_name].extend(
+                col for col in text_cols if col not in ordered_table_text_cols[table_name]
+            )
+
+        has_recalled_schema = bool(
+            aix_recall_hits
+            or (retrieval_result and retrieval_result.columns)
+            or local_schema_hits
+        )
+        if not table_text_cols and not has_recalled_schema:
             _record_tool_call("sql_db_value_lookup", True)
             return "数据库中未找到文本类型的列，无法执行值搜索。"
 
@@ -1753,12 +1984,14 @@ def sql_db_value_lookup(phrase: str) -> str:
 
         # 兜底：当向量召回无结果时，对文本列做 SQL LIKE 关键词搜索
         if not tc_values and table_text_cols:
-            raw_kws = [w.strip("\"'.,!?;:（）") for w in phrase.split()
-                       if len(w.strip("\"'.,!?;:（）")) >= 2]
-            keywords = (raw_kws[:5] if raw_kws else [phrase[:30]])
+            # A multi-word phrase must stay intact.  Splitting "charter school"
+            # into "charter"/"school" caused false entity matches such as
+            # "Preschool" and polluted the model context with invalid values.
+            normalized_lookup_phrase = " ".join(phrase.strip().split())[:100]
+            keywords = [normalized_lookup_phrase] if normalized_lookup_phrase else []
             try:
                 with db._engine.connect() as conn:
-                    for table_name, text_cols in list(table_text_cols.items())[:10]:
+                    for table_name, text_cols in list(ordered_table_text_cols.items())[:10]:
                         for col_name in text_cols[:5]:
                             q_col = (f'"{col_name}"' if dialect in ("postgresql", "oracle", "sqlite")
                                      else f'`{col_name}`')
@@ -1772,6 +2005,9 @@ def sql_db_value_lookup(phrase: str) -> str:
                                 elif dialect == "oracle":
                                     stmt = (f"SELECT DISTINCT {q_col} FROM {q_tbl} "
                                             f"WHERE {q_col} LIKE '%{safe_kw}%' AND ROWNUM <= 5")
+                                elif dialect == "postgresql":
+                                    stmt = (f"SELECT DISTINCT {q_col} FROM {q_tbl} "
+                                            f"WHERE {q_col} ILIKE '%{safe_kw}%' LIMIT 5")
                                 else:
                                     stmt = (f"SELECT DISTINCT {q_col} FROM {q_tbl} "
                                             f"WHERE {q_col} LIKE '%{safe_kw}%' LIMIT 5")
@@ -1789,6 +2025,10 @@ def sql_db_value_lookup(phrase: str) -> str:
         _record_tool_call("sql_db_value_lookup", True)
 
         candidate_cols: list[tuple[str, str]] = []
+        if aix_recall_hits:
+            candidate_cols.extend(
+                (hit.table_name, hit.field_name) for hit in aix_recall_hits
+            )
         if retrieval_result is not None and retrieval_result.columns:
             candidate_cols.extend(
                 [
@@ -1797,11 +2037,23 @@ def sql_db_value_lookup(phrase: str) -> str:
                     if col_rec.table_name and col_rec.column_name
                 ]
             )
+        candidate_cols.extend(
+            (hit["table_name"], hit["column_name"]) for hit in local_schema_hits
+        )
         candidate_cols.extend(list(tc_values.keys()))
         _remember_schema_candidates(candidate_cols)
 
         # ---- 缓存列描述，供 build_linked_mschema 使用 ----
         session_id = _get_session_id()
+        if aix_recall_hits:
+            desc_cache = _col_descriptions.setdefault(session_id, {})
+            for hit in aix_recall_hits:
+                key = f"{hit.table_name}.{hit.field_name}"
+                entry = desc_cache.setdefault(key, {})
+                if hit.field_type:
+                    entry["type"] = hit.field_type
+                if hit.field_comment:
+                    entry["comment"] = hit.field_comment
         if retrieval_result is not None and retrieval_result.columns:
             desc_cache = _col_descriptions.setdefault(session_id, {})
             for col_rec in retrieval_result.columns:
@@ -1816,12 +2068,25 @@ def sql_db_value_lookup(phrase: str) -> str:
                     desc = _extract_column_description(col_rec.value_text)
                     if desc:
                         entry["comment"] = desc
+        if local_schema_hits:
+            desc_cache = _col_descriptions.setdefault(session_id, {})
+            for hit in local_schema_hits:
+                key = f'{hit["table_name"]}.{hit["column_name"]}'
+                entry = desc_cache.setdefault(key, {})
+                entry["type"] = hit["column_type"]
+                if hit["comment"]:
+                    entry["comment"] = hit["comment"]
 
         # ---- 格式化输出：Schema 片段 + 值匹配提示 ----
         result_lines = []
 
         # 从阶段 3 值召回的 metadata 收集列级混合分，用于排序与消歧展示
         _col_blend: Dict[Tuple[str, str], float] = {}
+        if aix_recall_hits:
+            for hit in aix_recall_hits:
+                key = (hit.table_name, hit.field_name)
+                if hit.similarity > _col_blend.get(key, -1.0):
+                    _col_blend[key] = hit.similarity
         if retrieval_result is not None:
             for vrec in retrieval_result.values:
                 vmeta = vrec.metadata or {}
@@ -1829,11 +2094,44 @@ def sql_db_value_lookup(phrase: str) -> str:
                 key = (vrec.table_name or "", vrec.column_name or "")
                 if bscore > _col_blend.get(key, 0.0):
                     _col_blend[key] = bscore
+        for hit in local_schema_hits:
+            key = (hit["table_name"], hit["column_name"])
+            if hit["score"] > _col_blend.get(key, -1.0):
+                _col_blend[key] = hit["score"]
 
-        # (A) 优先从 retrieval_result 输出结构化架构片段
-        if retrieval_result is not None and retrieval_result.columns:
+        # (A) 输出结构化架构片段（aix_db 字段召回优先，BIRD 兼容兜底）
+        has_aix_hits = bool(aix_recall_hits)
+        has_bird_columns = bool(retrieval_result and retrieval_result.columns)
+        has_local_hits = bool(local_schema_hits)
+        if has_aix_hits or has_bird_columns or has_local_hits:
             result_lines.append("### 召回的架构元素\n")
 
+        displayed_columns: set[tuple[str, str]] = set()
+        if has_aix_hits:
+            for hit in aix_recall_hits:
+                key = (hit.table_name, hit.field_name)
+                if key in displayed_columns:
+                    continue
+                displayed_columns.add(key)
+                matched = list(dict.fromkeys(tc_values.get(key, [])))[:3]
+                line = (
+                    f"**{hit.table_name}.{hit.field_name}** | "
+                    f"rel={hit.similarity:.2f} | {hit.field_type or '?'}"
+                )
+                if hit.field_comment:
+                    enriched = _detect_pre_aggregated_hint(
+                        hit.field_name,
+                        hit.field_comment,
+                        hit.field_type,
+                    )
+                    line += f" | {enriched if enriched else hit.field_comment}"
+                elif hit.table_comment:
+                    line += f" | 表: {hit.table_comment}"
+                result_lines.append(line)
+                if matched:
+                    result_lines.append(f"  示例值: {', '.join(matched)}")
+
+        if has_bird_columns:
             # 按列级混合分降序，没有混合分的按原始 vec_score
             sorted_columns = sorted(
                 retrieval_result.columns,
@@ -1845,6 +2143,10 @@ def sql_db_value_lookup(phrase: str) -> str:
             )
 
             for col_rec in sorted_columns:
+                key = (col_rec.table_name, col_rec.column_name)
+                if key in displayed_columns:
+                    continue
+                displayed_columns.add(key)
                 meta = col_rec.metadata or {}
                 col_type = meta.get("type", "?")
                 col_desc = _extract_column_description(col_rec.value_text)
@@ -1875,7 +2177,27 @@ def sql_db_value_lookup(phrase: str) -> str:
                 result_lines.append(line)
                 if display_vals:
                     result_lines.append(f"  示例值: {', '.join(display_vals)}")
-            result_lines.append(f"\n（共 {len(retrieval_result.columns)} 个召回列）")
+        if has_local_hits:
+            for hit in local_schema_hits:
+                key = (hit["table_name"], hit["column_name"])
+                if key in displayed_columns:
+                    continue
+                displayed_columns.add(key)
+                line = (
+                    f'**{hit["table_name"]}.{hit["column_name"]}** | '
+                    f'rel={hit["score"]:.2f} | {hit["column_type"]}'
+                )
+                if hit["comment"]:
+                    enriched = _detect_pre_aggregated_hint(
+                        hit["column_name"], hit["comment"], hit["column_type"]
+                    )
+                    line += f' | {enriched if enriched else hit["comment"]}'
+                result_lines.append(line)
+                matched = list(dict.fromkeys(tc_values.get(key, [])))[:3]
+                if matched:
+                    result_lines.append(f"  示例值: {', '.join(matched)}")
+        if displayed_columns:
+            result_lines.append(f"\n（共 {len(displayed_columns)} 个召回列）")
         elif tc_values:
             # 兜底：只有 tc_values，无向量召回列信息
             result_lines.append("### 召回的架构元素\n")
@@ -1909,7 +2231,17 @@ def sql_db_value_lookup(phrase: str) -> str:
 
         if result_lines:
             # ---- 追加结构键（主键/外键）区块 ----
-            struct_key_lines = _get_struct_keys_for_tables(retrieval_result, inspector)
+            aix_table_names = []
+            if aix_recall_hits:
+                aix_table_names = [hit.table_name for hit in aix_recall_hits]
+            recalled_table_names = aix_table_names + [
+                hit["table_name"] for hit in local_schema_hits
+            ]
+            struct_key_lines = _get_struct_keys_for_tables(
+                retrieval_result,
+                inspector,
+                recalled_table_names=recalled_table_names,
+            )
             if struct_key_lines:
                 result_lines.append("\n### 🔑 结构键（JOIN 所需主键/外键）\n")
                 result_lines.extend(struct_key_lines)
@@ -2281,6 +2613,7 @@ def reset_session(session_id: str = None) -> None:
     reset_linked_schema(sid)
     reset_sql_execution_trace(sid)
     reset_final_sql(sid)
+    _datasource_ids.pop(sid, None)
 
 
 def build_linked_mschema(db_id: str = "") -> str:

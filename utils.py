@@ -70,9 +70,10 @@ def create_model(
         "api_key": api_key or os.environ.get("LITE_LLM_API_KEY"),
         "model_name": model_name or os.environ.get(
             "LITE_LLM_MODEL_NAME",
+            "deepseek-v4-pro"
             # "qwen3.5-plus"
             # "gpt-4-omni"
-            "Qwen/Qwen3-235B-A22B"
+            # "Qwen/Qwen3-235B-A22B"
             # "qwen3-max"
             # "kimi-k2.6"
         ),
