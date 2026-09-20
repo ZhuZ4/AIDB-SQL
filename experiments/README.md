@@ -52,11 +52,14 @@ hash and download provenance are included in every run manifest. The supervisor
 prevents idle system sleep while alive without changing persistent power settings.
 
 Before retaining a candidate, compare the same 300 questions, report gains/regressions,
-cost and paired uncertainty, and perform two predeclared matched repetitions. Monetary
+cost and paired uncertainty, and complete the two predeclared matched runs per version
+(including the first full run). Their chronological pairing cannot be reordered. Monetary
 cost ratios remain unverified until matching provider Credit rates or billing records
 are available; do not substitute an unrelated USD price. The API's absolute total
 spending/call limits remain unset as authorized. The 40-call/900-second question limits
-remain fixed, and comparisons report calls, cached/uncached tokens and latency. One
+remain fixed, and comparisons report calls, cached/uncached tokens and latency. Cumulative
+counters remain authoritative over a retry's last-attempt usage; incomplete usage stays
+unknown. Small retained gains below six questions are marked provisional. One
 main method changes per candidate. Unsuccessful experiments remain recorded.
 
 Pre-baseline observation: the full index includes 99 columns without descriptions.

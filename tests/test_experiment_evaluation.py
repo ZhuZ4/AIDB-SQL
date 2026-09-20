@@ -9,7 +9,7 @@ import sys
 import tempfile
 import unittest
 
-from experiments.compare import bootstrap_interval, compare_runs, mcnemar_exact
+from experiments.compare import bootstrap_interval, compare_runs, cost_summary, mcnemar_exact
 from experiments.evaluate import (
     DEFAULT_OFFICIAL_DIR, MISSING_SQL, aggregate_scores, align_predictions,
     evaluate_pair, execute_pair, final_sql, load_official_calculator, readonly_connection,
@@ -141,6 +141,37 @@ class PairedComparisonTests(unittest.TestCase):
         result = compare_runs([self.baseline], [candidate], bootstrap_samples=100, checks_passed=True, max_cost_ratio=2)
         self.assertFalse(result["cost_check_passed"])
         self.assertIsNone(result["cost"]["candidate"]["cost_usd"]["total"])
+
+    def test_cached_and_uncached_tokens_preserve_reported_zero(self):
+        rows = [{"llm_calls": 2, "prompt_tokens": 100, "usage": {
+            "llm_calls": 2, "prompt_tokens": 100, "cached_tokens": 80,
+            "reasoning_tokens": 0, "usage_complete": True}},
+            {"prompt_tokens": 50, "cached_tokens": 0, "reasoning_tokens": 0}]
+        summary = cost_summary(rows)
+        self.assertEqual(summary["cached_tokens"]["total"], 80)
+        self.assertEqual(summary["uncached_prompt_tokens"]["total"], 70)
+        self.assertEqual(summary["reasoning_tokens"]["total"], 0)
+        self.assertIsNone(summary["cost_usd"]["total"])
+
+    def test_last_attempt_cache_cannot_masquerade_as_cumulative_usage(self):
+        partial = {"llm_calls": 8, "prompt_tokens": 500,
+                   "usage": {"llm_calls": 3, "prompt_tokens": 100, "cached_tokens": 80}}
+        summary = cost_summary([partial])
+        self.assertEqual(summary["prompt_tokens"]["total"], 500)
+        self.assertIsNone(summary["cached_tokens"]["total"])
+        self.assertIsNone(summary["uncached_prompt_tokens"]["total"])
+        partial["cached_tokens"] = 300
+        self.assertEqual(cost_summary([partial])["uncached_prompt_tokens"]["total"], 200)
+
+    def test_unknown_or_invalid_cache_does_not_become_a_known_zero(self):
+        rows = [{"prompt_tokens": None, "cached_tokens": None,
+                 "usage": {"prompt_tokens": 100, "cached_tokens": 80}},
+                {"prompt_tokens": 100, "usage": {"cached_tokens": 80, "usage_complete": False}},
+                {"prompt_tokens": 100, "cached_tokens": True}]
+        summary = cost_summary(rows)
+        self.assertIsNone(summary["cached_tokens"]["total"])
+        self.assertEqual(summary["cached_tokens"]["missing_questions"], 3)
+        self.assertIsNone(summary["uncached_prompt_tokens"]["total"])
 
     def test_mcnemar_and_bootstrap_known_cases(self):
         self.assertEqual(mcnemar_exact(0, 0), 1)

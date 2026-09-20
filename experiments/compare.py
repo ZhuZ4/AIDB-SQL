@@ -65,6 +65,27 @@ def bootstrap_interval(differences: list[float], *, iterations: int = 10000, see
     return [means[int((iterations - 1) * 0.025)], means[int((iterations - 1) * 0.975)]]
 
 
+def usage_value(row: dict[str, Any], names: tuple[str, ...]) -> float | int | None:
+    """Keep cumulative counters authoritative over a last-attempt usage object."""
+    for name in names:
+        if name in row:
+            value = row[name]
+            return value if type(value) in (int, float) and math.isfinite(value) and value >= 0 else None
+    usage = row.get("usage", {}) if isinstance(row.get("usage"), dict) else {}
+    # Older score exports retain nested usage from the final attempt only. A
+    # retry's cumulative tokens must not be compared with that partial cache count.
+    if row.get("attempt_count", 1) > 1 or row.get("usage_unknown") or usage.get("usage_complete") is False:
+        return None
+    for counter in ("llm_calls", "prompt_tokens", "completion_tokens", "total_tokens"):
+        if counter in row and counter in usage and row[counter] != usage[counter]:
+            return None
+    for name in names:
+        if name in usage:
+            value = usage[name]
+            return value if type(value) in (int, float) and math.isfinite(value) and value >= 0 else None
+    return None
+
+
 def cost_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     aliases = {
         "generation_seconds": ("duration_seconds", "elapsed_seconds", "latency_seconds"),
@@ -72,20 +93,33 @@ def cost_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "prompt_tokens": ("prompt_tokens", "input_tokens"),
         "completion_tokens": ("completion_tokens", "output_tokens"),
         "total_tokens": ("total_tokens",),
+        "cached_tokens": ("cached_tokens", "cached_input_tokens"),
+        "reasoning_tokens": ("reasoning_tokens",),
         "cost_usd": ("cost_usd", "cost"),
     }
     output: dict[str, Any] = {}
     for metric, names in aliases.items():
         values = []
         for row in rows:
-            usage = row.get("usage", {}) if isinstance(row.get("usage"), dict) else {}
-            value = next((row.get(name, usage.get(name)) for name in names if isinstance(row.get(name, usage.get(name)), (int, float))), None)
+            value = usage_value(row, names)
             if value is not None:
                 values.append(value)
         output[metric] = {"total": sum(values) if values else None, "mean": statistics.mean(values) if values else None,
                           "reported_questions": len(values), "missing_questions": len(rows) - len(values)}
+    uncached = []
+    for row in rows:
+        prompt = usage_value(row, aliases["prompt_tokens"])
+        cached = usage_value(row, aliases["cached_tokens"])
+        if prompt is not None and cached is not None and cached <= prompt:
+            uncached.append(prompt - cached)
+    output["uncached_prompt_tokens"] = {
+        "total": sum(uncached) if uncached else None,
+        "mean": statistics.mean(uncached) if uncached else None,
+        "reported_questions": len(uncached), "missing_questions": len(rows) - len(uncached),
+    }
     output["estimated_usage_questions"] = sum(bool(row.get("usage_estimated") or
-                                                   (row["usage"].get("estimated", False) if isinstance(row.get("usage"), dict) else False)) for row in rows)
+                                                   (row["usage"].get("estimated", False) or row["usage"].get("tokens_estimated", False)
+                                                    if isinstance(row.get("usage"), dict) else False)) for row in rows)
     return output
 
 

@@ -16,12 +16,14 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 
 from experiments.compare import compare_runs, validate_scores
 from experiments.evaluate import METRIC, OFFICIAL_COMMIT, OFFICIAL_HASHES
 from experiments.prepare_dataset import read_jsonl, sha256_file
+from experiments.sqlite_runtime import DLL_SHA256, VERSION as SQLITE_VERSION
 from experiments.state import atomic_json, single_instance
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -108,12 +110,18 @@ def validate_run(scores_path, policy, expected_commit):
     evaluator = summary.get('official_evaluator', {})
     if evaluator.get('commit') != OFFICIAL_COMMIT or evaluator.get('file_hashes') != OFFICIAL_HASHES or evaluator.get('metric') != METRIC:
         raise ValueError('Official evaluator identity is missing or different')
+    for runtime in (manifest.get('sqlite_runtime'), evaluator.get('sqlite_runtime')):
+        if not isinstance(runtime, dict) or runtime.get('version') != SQLITE_VERSION or runtime.get('dll_sha256') != DLL_SHA256:
+            raise ValueError('Generation and evaluation must identify the frozen SQLite runtime')
     if any(summary.get(k) != 300 for k in ('completed_generation_records', 'scoring_denominator')):
         raise ValueError('Incomplete generation/scoring records cannot be registered')
     if summary.get('overall', {}).get('count') != 300 or summary['overall'].get('correct') != sum(r['ex'] for r in scores):
         raise ValueError('Evaluator summary does not match the complete score records')
     if manifest.get('git_commit') != full_commit(expected_commit) or manifest.get('expected_questions') != 300:
         raise ValueError('Run manifest does not bind the requested commit and 300 questions')
+    created_at = manifest.get('created_at')
+    if type(created_at) not in (int, float) or not math.isfinite(created_at):
+        raise ValueError('Run manifest must record its creation time for matched repeat ordering')
     frozen = {key: value for key, value in manifest.items()
               if key not in ('fingerprint', 'run_id', 'created_at', 'expected_questions')}
     if hashlib.sha256(json.dumps(frozen, sort_keys=True).encode()).hexdigest() != manifest.get('fingerprint'):
@@ -137,14 +145,15 @@ def validate_run(scores_path, policy, expected_commit):
     generation_contract['sqlite_runtime'] = {key: value for key, value in manifest.get('sqlite_runtime', {}).items()
                                               if key != 'dll_path'}
     repetitions = config.get('repetition_count')
-    if not isinstance(repetitions, int) or repetitions < policy['required_matched_repeats']:
+    if type(repetitions) is not int or repetitions < policy['required_matched_repeats']:
         raise ValueError('Required matched repetitions were not frozen in the run configuration')
+    generation_contract['repetition_count'] = repetitions
     if manifest.get('config', {}).get('candidate_cost_ratio_limit') != policy['max_cost_ratio']:
         raise ValueError('Run monetary-cost policy differs from the frozen registry')
     predictions = read_jsonl(predictions_path)
     if len(predictions) != 300 or [r['question_id'] for r in predictions] != policy['question_ids']:
         raise ValueError('Predictions must contain the same complete 300-question sequence')
-    for prediction, score in zip(predictions, scores):
+    for index, (prediction, score) in enumerate(zip(predictions, scores)):
         if prediction.get('run_id') != manifest.get('run_id') or prediction.get('db_id') != score['db_id']:
             raise ValueError('Mixed-run or cross-database prediction assembly is forbidden')
         if prediction.get('status') not in ('succeeded', 'failed', 'timeout'):
@@ -152,10 +161,21 @@ def validate_run(scores_path, policy, expected_commit):
         sql = prediction.get('submitted_final_sql')
         if not isinstance(sql, str) or (sql and prediction.get('final_sql_source') != 'submit_final_sql'):
             raise ValueError('Predictions must preserve raw final tool submissions, including empty failures')
+        submitted = bool(sql.strip())
+        if (score.get('submitted') is not submitted or score.get('generation_status') != prediction['status']
+                or score.get('sql_idx') != index):
+            raise ValueError('Official score submission metadata disagrees with its generation record')
+        if not submitted and (score['ex'] != 0 or score.get('status') != 'missing_sql'
+                              or score.get('prediction_executable') is not False):
+            raise ValueError('An empty final submission must receive official missing_sql EX=0')
+        if score['ex'] == 1 and (not submitted or score.get('status') != 'scored'
+                                 or score.get('prediction_executable') is not True):
+            raise ValueError('Official EX credit requires an executed final submission')
     identity = dict(evaluator)
     if isinstance(identity.get('sqlite_runtime'), dict):
         identity['sqlite_runtime'] = {k: v for k, v in identity['sqlite_runtime'].items() if k != 'dll_path'}
     reference = {'run_id': manifest['run_id'], 'commit': expected_commit, 'fingerprint': manifest['fingerprint'],
+                 'created_at': created_at,
                  'scores': artifact(scores_path), 'summary': artifact(summary_path),
                  'manifest': artifact(manifest_path), 'predictions': artifact(predictions_path),
                  'repetition_count': repetitions, 'official_evaluator': identity,
@@ -170,15 +190,18 @@ def validate_runs(paths, policy, commit):
         raise ValueError('Matched repeats must be distinct complete runs, not repeated copies')
     if any(r['fingerprint'] != refs[0]['fingerprint'] for r in refs):
         raise ValueError('All repetitions must use one frozen version and configuration')
+    if len(refs) > refs[0]['repetition_count']:
+        raise ValueError('Complete runs cannot exceed the predeclared repetition count')
+    if any(left['created_at'] > right['created_at'] for left, right in zip(refs, refs[1:])):
+        raise ValueError('Matched repeats cannot be reordered; use chronological generation order')
     if any((r['official_evaluator'], r['timeout_seconds']) != (refs[0]['official_evaluator'], refs[0]['timeout_seconds']) for r in refs):
         raise ValueError('Evaluation runtime or SQL timeout differs between repetitions')
     return refs, [scores for _, scores in result]
 
 
 def preserve_registered_runs(previous, current):
-    by_id = {ref['run_id']: ref for ref in current}
-    if any(by_id.get(ref['run_id']) != ref for ref in previous):
-        raise ValueError('Registered run artifacts cannot be changed or omitted from later comparisons')
+    if current[:len(previous)] != previous:
+        raise ValueError('Registered run artifacts cannot be changed, omitted, or reordered in later comparisons')
 
 
 def register_baseline(path, scores, *, branch, commit):
@@ -269,6 +292,7 @@ def record_decision(path, candidate_id, comparison_path, *, decision='auto', rea
         proof = artifact(comparison_path)
         if candidate['status'] in ('kept', 'rejected'):
             if candidate['decisions'][-1]['comparison'] == proof:
+                verified_comparison(comparison_path, candidate, registry)
                 return registry
             raise ValueError('A finalized candidate cannot be reselected using another comparison')
         comparison, before, after = verified_comparison(comparison_path, candidate, registry)
@@ -297,6 +321,10 @@ def record_decision(path, candidate_id, comparison_path, *, decision='auto', rea
                   'reason': reason, 'rejection_reasons': rejected, 'pending_reasons': pending,
                   'comparison': proof, 'matched_repeats': comparison['matched_repeats'],
                   'mean_net_correct': comparison['mean_net_correct'], 'mean_delta_ex': comparison['mean_delta_ex'],
+                  'milestone_net_six_reached': comparison['milestone_net_six_reached'],
+                  'small_gain_provisional': status == 'kept' and 0 < comparison['mean_net_correct'] < 6,
+                  'paired_bootstrap_95_ci_delta_ex': comparison['paired_bootstrap_95_ci_delta_ex'],
+                  'interpretation': comparison['interpretation'],
                   'monetary_cost_status': 'verified' if monetary_known else 'unknown',
                   'cost': comparison['cost'], 'cost_ratio': comparison['cost_ratio'],
                   'required_matched_repeats': required, 'runs': {'baseline': before, 'candidate': after}}

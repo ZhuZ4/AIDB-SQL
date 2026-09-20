@@ -242,7 +242,7 @@ def evaluate_predictions(dataset_dir: Path, predictions_path: Path, output_dir: 
                           "error": "No raw final SQL was submitted; retained in the denominator"}
             row = {"sql_idx": index, "question_id": record["question_id"], "db_id": record["db_id"], "difficulty": record["difficulty"],
                    "submitted": submitted, "generation_status": prediction.get("status", "unknown"), **result}
-            for field in ("duration_seconds", "elapsed_seconds", "latency_seconds", "llm_calls", "api_calls", "prompt_tokens", "completion_tokens", "input_tokens", "output_tokens", "total_tokens", "cost", "cost_usd", "usage_estimated"):
+            for field in ("duration_seconds", "elapsed_seconds", "latency_seconds", "llm_calls", "api_calls", "prompt_tokens", "completion_tokens", "input_tokens", "output_tokens", "total_tokens", "cached_tokens", "reasoning_tokens", "attempt_count", "usage_unknown", "cost", "cost_usd", "usage_estimated"):
                 if field in prediction:
                     row[field] = prediction[field]
             if isinstance(prediction.get("usage"), dict):

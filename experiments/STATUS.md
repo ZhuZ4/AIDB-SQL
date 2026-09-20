@@ -16,7 +16,7 @@ were retained; subsequent infrastructure work builds on them.
 | P2 agent | Fixed 30-question smoke complete: 30 terminal records, 29 genuine submissions/executable SQL, official EX 20/30 (66.67%), 0 timeouts; one bounded model failure retained |
 | P2 persistence | Transactional question/attempt records, process isolation, code/data/index/runtime freeze, actual-interpreter PID handshake, request checkpoints, balance detection and resumption implemented; 51 offline checks across evaluation, worker, recovery, batch boundaries and real Windows process trees passed |
 | P3 B0 | Running as `B0_20260921_01` from `F:/data/VSCodeproject/AIDB-SQL-B0`, frozen commit `5a82da5`; no baseline score claimed before all 300 are processed and scored |
-| P4/P5 | Offline diagnosis and persistent research registry implemented; 19 diagnosis and 13 registry tests passed. Await full B0 evidence before choosing a method; best commit remains unset |
+| P4/P5 | Offline diagnosis and persistent research registry implemented; 22 diagnosis, 25 registry, and 18 evaluation/comparison tests passed. Repeat count/order, raw submission credit, runtime identity, and atomic best-version persistence are checked. Await full B0 evidence before choosing a method; best commit remains unset |
 
 Full local evidence lives in `.local-services/experiments/` and
 `.local-services/column-index/`. The active Goal continues; this file is a checkpoint,

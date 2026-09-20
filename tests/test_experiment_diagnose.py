@@ -81,6 +81,14 @@ class CompilerReferenceTests(FixtureCase):
         self.assertIn(("Order Details", "Unit.Price"), self.pairs(result))
         self.assertGreater(result["indirect_read_context_count"], 0)
 
+    def test_view_callbacks_do_not_count_as_physical_coverage_requirements(self):
+        result = self.reference('SELECT * FROM "Order View"')
+        self.assertEqual(result["tables"], ["Order Details"])
+        self.assertEqual(self.pairs(result), {("Order Details", "Order ID"), ("Order Details", "Unit.Price")})
+        logical = [row for row in result["columns"] if row["table"] == "Order View"]
+        self.assertTrue(logical)
+        self.assertTrue(all(row["object_type"] == "view" and not row["coverage_eligible"] for row in logical))
+
     def test_recursive_query_is_not_executed(self):
         started = time.monotonic()
         result = self.reference("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n) SELECT sum(x) FROM n")
@@ -151,6 +159,30 @@ class EvidenceTests(FixtureCase):
         self.assertEqual(observed["structural"], {("Order Details", "Order ID")})
         self.assertNotIn(("客户.表", "列 名"), observed["candidates"])
         self.assertFalse(observed["per_route_candidates_available"])
+
+    def test_value_only_lookup_fallback_without_metadata_pipe_is_visible(self):
+        trace = self.trace()
+        trace["tool_trace"][-1]["response"]["result"] = (
+            "### 召回的架构元素\n\n**Order Details.Unit.Price**\n  示例值: PRIVATE_VALUE\n"
+            "\n### 值匹配提示（实体对齐）\n**客户.表.列 名**\n"
+            "\n### 🔑 结构键（JOIN 所需主键/外键）\n**Order Details.Order ID** | 主键 | key\n"
+        )
+        observed = trace_schema_observations(trace, self.catalog)
+        self.assertEqual(observed["candidates"], {("Order Details", "Unit.Price")})
+        self.assertEqual(observed["structural"], {("Order Details", "Order ID")})
+        row = self.row(trace=trace)
+        self.assertEqual(row["coverage"]["missing_from_visible_lookup_union"], [])
+        self.assertNotIn("suspected_visible_candidate_coverage_gap", row["suspected_causes"])
+        self.assertNotIn("PRIVATE_VALUE", json.dumps(row))
+
+    def test_view_gold_does_not_report_missing_logical_columns_when_base_is_linked(self):
+        trace = self.trace()
+        trace["linked_schema"] = ["Order Details.Order ID", "Order Details.Unit.Price"]
+        row = self.row(trace=trace, gold='SELECT * FROM "Order View"')
+        self.assertEqual(row["coverage"]["missing_from_linked_schema"], [])
+        self.assertEqual(row["coverage"]["reference_tables_absent_from_linked_schema"], [])
+        self.assertEqual(row["coverage"]["missing_from_visible_lookup_union"], [])
+        self.assertEqual(row["suspected_causes"], [])
 
     def test_wrong_query_has_evidence_not_a_proven_cause(self):
         row = self.row()

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from experiments.compare import compare_runs
 from experiments.evaluate import METRIC, OFFICIAL_COMMIT, OFFICIAL_HASHES
@@ -13,6 +14,7 @@ from experiments.research_registry import (
     artifact, initialize, load_json, record_decision, register_baseline, register_candidate, status,
 )
 from experiments.state import atomic_json
+from experiments.sqlite_runtime import DLL_SHA256, VERSION
 
 
 class ResearchRegistryTests(unittest.TestCase):
@@ -36,6 +38,8 @@ class ResearchRegistryTests(unittest.TestCase):
         folder.mkdir(exist_ok=True)
         scores = [{'question_id': i, 'db_id': 'example', 'difficulty': 'simple',
                    'ex': int(i < correct), 'status': 'scored', 'llm_calls': 3,
+                   'sql_idx': i, 'submitted': True, 'generation_status': 'succeeded',
+                   'prediction_executable': True,
                    'duration_seconds': 2, 'prompt_tokens': None, 'completion_tokens': None} for i in range(300)]
         predictions = [{'question_id': i, 'db_id': 'example', 'run_id': run_id, 'status': 'succeeded',
                         'submitted_final_sql': 'SELECT 1', 'final_sql_source': 'submit_final_sql'} for i in range(300)]
@@ -44,6 +48,7 @@ class ResearchRegistryTests(unittest.TestCase):
         frozen = {'git_commit': commit, 'code_sha256': {'agent.py': commit + '0' * 24},
                   'questions_sha256': '1' * 64, 'dataset_manifest_sha256': '2' * 64,
                   'index_manifest_sha256': '3' * 64, 'subset': 'all',
+                  'sqlite_runtime': {'version': VERSION, 'dll_sha256': DLL_SHA256},
                   'config': {'repetition_count': repetitions, 'candidate_cost_ratio_limit': cost_limit,
                              'model': 'deepseek-v4.1-flash', 'max_llm_calls': 40,
                              'question_timeout_seconds': 900, 'sql_timeout_seconds': 30, 'temperature': 0}}
@@ -53,7 +58,8 @@ class ResearchRegistryTests(unittest.TestCase):
         summary = {'metric': METRIC, 'subset': 'all', 'completed_generation_records': 300,
                    'scoring_denominator': 300, 'overall': {'count': 300, 'correct': correct},
                    'source_sha256': self.source_hash, 'selection_manifest_sha256': sha256_file(self.selection),
-                   'official_evaluator': {'commit': OFFICIAL_COMMIT, 'file_hashes': OFFICIAL_HASHES, 'metric': METRIC},
+                   'official_evaluator': {'commit': OFFICIAL_COMMIT, 'file_hashes': OFFICIAL_HASHES, 'metric': METRIC,
+                                          'sqlite_runtime': dict(frozen['sqlite_runtime'])},
                    'timeout_seconds': 30, 'scores_sha256': sha256_file(folder / 'scores.jsonl'),
                    'predictions_sha256': sha256_file(folder / 'predictions.jsonl')}
         atomic_json(folder / 'summary.json', summary)
@@ -149,6 +155,19 @@ class ResearchRegistryTests(unittest.TestCase):
         self.assertEqual(complete['candidates']['C1']['status'], 'kept')
         self.assertEqual(len(complete['candidates']['C1']['decisions']), 2)
 
+    def test_small_matched_gain_keeps_best_but_remains_provisional(self):
+        self.register_base()
+        self.candidate()
+        candidates = [self.make_run('c1_1', self.b, 101), self.make_run('c1_2', self.b, 102)]
+        proof = self.comparison(candidates)
+        result = record_decision(self.path, 'C1', proof)
+        evidence = result['candidates']['C1']['decisions'][-1]
+        self.assertEqual(result['best']['commit'], self.b)
+        self.assertTrue(evidence['small_gain_provisional'])
+        self.assertFalse(evidence['milestone_net_six_reached'])
+        self.assertEqual(evidence['paired_bootstrap_95_ci_delta_ex'], load_json(proof)['paired_bootstrap_95_ci_delta_ex'])
+        self.assertIn('Development-set evidence only', evidence['interpretation'])
+
     def test_repeating_same_run_is_not_a_matched_repetition(self):
         self.register_base([self.baseline[0]])
         self.candidate()
@@ -232,6 +251,138 @@ class ResearchRegistryTests(unittest.TestCase):
         self.assertEqual(len(result['review_requests']), 1)
         self.assertEqual(result['cycle_reports_due'][0]['candidate_ids'], ['C1', 'C2', 'C3', 'C4', 'C5'])
         self.assertEqual(result['cycle_reports_due'][0]['cycle'], 1)
+
+    def test_cannot_extend_beyond_predeclared_repeat_count(self):
+        third = self.make_run('b0_3', self.a, 150)
+        with self.assertRaisesRegex(ValueError, 'predeclared'):
+            self.register_base(self.baseline + [third])
+        self.assertIsNone(load_json(self.path)['best'])
+
+    def test_baseline_and_candidate_must_predeclare_same_repeat_count(self):
+        self.register_base()
+        self.candidate()
+        candidates = [self.make_run('c1_1', self.b, 107, repetitions=3),
+                      self.make_run('c1_2', self.b, 108, repetitions=3)]
+        with self.assertRaisesRegex(ValueError, 'contract differs'):
+            record_decision(self.path, 'C1', self.comparison(candidates))
+        self.assertEqual(load_json(self.path)['best']['commit'], self.a)
+
+    def test_registered_repeat_pair_order_cannot_be_changed(self):
+        self.register_base()
+        self.candidate()
+        candidates = [self.make_run('c1_1', self.b, 107), self.make_run('c1_2', self.b, 108)]
+        proof = self.comparison(candidates, baseline=list(reversed(self.baseline)))
+        with self.assertRaisesRegex(ValueError, 'reordered'):
+            record_decision(self.path, 'C1', proof)
+        self.assertEqual(load_json(self.path)['best']['commit'], self.a)
+
+    def test_candidate_repeats_must_initially_use_chronological_order(self):
+        self.register_base()
+        self.candidate()
+        candidates = [self.make_run('c1_1', self.b, 107), self.make_run('c1_2', self.b, 108)]
+        for index, path in enumerate(candidates):
+            manifest_path = path.parent / 'run_manifest.json'
+            manifest = load_json(manifest_path)
+            manifest['created_at'] = index + 10
+            atomic_json(manifest_path, manifest)
+        proof = self.comparison(list(reversed(candidates)))
+        with self.assertRaisesRegex(ValueError, 'chronological'):
+            record_decision(self.path, 'C1', proof)
+        self.assertEqual(load_json(self.path)['best']['commit'], self.a)
+
+    def test_empty_final_sql_cannot_receive_official_ex_credit(self):
+        scores_path = self.baseline[0]
+        predictions_path = scores_path.parent / 'predictions.jsonl'
+        predictions = [json.loads(line) for line in predictions_path.read_text(encoding='utf-8').splitlines()]
+        predictions[0].update(submitted_final_sql='', final_sql_source='', status='failed')
+        write_jsonl(predictions_path, predictions)
+        summary_path = scores_path.parent / 'summary.json'
+        summary = load_json(summary_path)
+        summary['predictions_sha256'] = sha256_file(predictions_path)
+        atomic_json(summary_path, summary)
+        with self.assertRaisesRegex(ValueError, 'submission'):
+            self.register_base([scores_path])
+        self.assertIsNone(load_json(self.path)['best'])
+
+    def test_missing_sql_remains_in_denominator_and_can_register(self):
+        scores_path = self.baseline[0]
+        predictions_path = scores_path.parent / 'predictions.jsonl'
+        predictions = [json.loads(line) for line in predictions_path.read_text(encoding='utf-8').splitlines()]
+        predictions[-1].update(submitted_final_sql='', final_sql_source='', status='failed')
+        write_jsonl(predictions_path, predictions)
+        scores = [json.loads(line) for line in scores_path.read_text(encoding='utf-8').splitlines()]
+        scores[-1].update(submitted=False, generation_status='failed', status='missing_sql',
+                          ex=0, prediction_executable=False)
+        write_jsonl(scores_path, scores)
+        summary_path = scores_path.parent / 'summary.json'
+        summary = load_json(summary_path)
+        summary.update(predictions_sha256=sha256_file(predictions_path), scores_sha256=sha256_file(scores_path))
+        atomic_json(summary_path, summary)
+        result = self.register_base([scores_path])
+        self.assertEqual(result['best']['commit'], self.a)
+        self.assertEqual(summary['scoring_denominator'], 300)
+
+    def test_ex_credit_requires_successful_official_execution(self):
+        scores_path = self.baseline[0]
+        scores = [json.loads(line) for line in scores_path.read_text(encoding='utf-8').splitlines()]
+        scores[0].update(status='sql_error', prediction_executable=False)
+        write_jsonl(scores_path, scores)
+        summary_path = scores_path.parent / 'summary.json'
+        summary = load_json(summary_path)
+        summary['scores_sha256'] = sha256_file(scores_path)
+        atomic_json(summary_path, summary)
+        with self.assertRaisesRegex(ValueError, 'executed final submission'):
+            self.register_base([scores_path])
+        self.assertIsNone(load_json(self.path)['best'])
+
+    def test_sqlite_runtime_identity_is_required(self):
+        scores_path = self.baseline[0]
+        manifest_path = scores_path.parent / 'run_manifest.json'
+        manifest = load_json(manifest_path)
+        manifest.pop('sqlite_runtime')
+        frozen = {key: value for key, value in manifest.items()
+                  if key not in ('fingerprint', 'run_id', 'created_at', 'expected_questions')}
+        manifest['fingerprint'] = hashlib.sha256(json.dumps(frozen, sort_keys=True).encode()).hexdigest()
+        atomic_json(manifest_path, manifest)
+        with self.assertRaisesRegex(ValueError, 'SQLite runtime'):
+            self.register_base([scores_path])
+        self.assertIsNone(load_json(self.path)['best'])
+
+    def test_evaluator_cannot_silently_change_sqlite_runtime(self):
+        scores_path = self.baseline[0]
+        summary_path = scores_path.parent / 'summary.json'
+        summary = load_json(summary_path)
+        summary['official_evaluator']['sqlite_runtime']['dll_sha256'] = '0' * 64
+        atomic_json(summary_path, summary)
+        with self.assertRaisesRegex(ValueError, 'SQLite runtime'):
+            self.register_base([scores_path])
+        self.assertIsNone(load_json(self.path)['best'])
+
+    def test_replaying_kept_decision_revalidates_registered_artifacts(self):
+        self.register_base()
+        self.candidate()
+        candidates = [self.make_run('c1_1', self.b, 107), self.make_run('c1_2', self.b, 108)]
+        proof = self.comparison(candidates)
+        record_decision(self.path, 'C1', proof)
+        before = self.path.read_bytes()
+        candidates[0].write_text(candidates[0].read_text(encoding='utf-8') + '\n', encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'hashes have changed'):
+            record_decision(self.path, 'C1', proof)
+        self.assertEqual(self.path.read_bytes(), before)
+
+    def test_failed_persistence_keeps_old_best_and_can_retry(self):
+        self.register_base()
+        self.candidate()
+        candidates = [self.make_run('c1_1', self.b, 107), self.make_run('c1_2', self.b, 108)]
+        proof = self.comparison(candidates)
+        before = self.path.read_bytes()
+        with patch('experiments.research_registry.atomic_json', side_effect=OSError('disk unavailable')):
+            with self.assertRaisesRegex(OSError, 'disk unavailable'):
+                record_decision(self.path, 'C1', proof)
+        self.assertEqual(self.path.read_bytes(), before)
+        result = record_decision(self.path, 'C1', proof)
+        self.assertEqual(result['best']['commit'], self.b)
+        self.assertEqual(load_json(self.path), result)
 
 
 if __name__ == '__main__':

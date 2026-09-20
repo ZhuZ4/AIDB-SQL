@@ -50,6 +50,7 @@ LIMITATIONS = [
     "A final linked-schema snapshot does not establish what was available at initial SQL generation time.",
     "Lookup columns are the visible tool-response union; B0 traces do not expose all per-route candidates, scores, or ranks.",
     "COUNT(*) may emit a table-only SQLITE_READ callback; an empty column name is not a missing column.",
+    "View-column callbacks are retained as logical references but excluded from physical-table coverage; the underlying table callbacks supply that coverage.",
     "Compilation can fail or deny a statement; partial references from failed compilation cannot establish complete coverage.",
     "The recorded initial SQL is the first query-call trace where available, not necessarily the unexecuted natural-language draft.",
     "EXPLAIN opcode counts are version-specific auxiliary observations, not semantic correctness judgments.",
@@ -279,15 +280,23 @@ def compile_references(sql: str, db_path: Path, catalog: Catalog,
     finally:
         if connection is not None:
             connection.close()
-    output["tables"] = sorted({table for database, table in table_reads if database == "main"})
+    # SQLITE_READ includes logical view columns in addition to the underlying
+    # table reads. Views (and virtual table-valued functions not in the catalog)
+    # must not become missing physical-table coverage requirements.
+    output["tables"] = sorted({canonical for database, table in table_reads
+                               if database == "main"
+                               and (canonical := catalog.table_name(table)) is not None
+                               and catalog.object_types.get(canonical) == "table"})
     output["table_only_reads"] = [{"database": database, "table": table} for database, table in sorted(table_only)]
     output["columns"] = []
     for database, table_name, column_name in sorted(columns):
         table = catalog.table_name(table_name)
         column = catalog.column_name(table, column_name) if table else None
+        object_type = catalog.object_types.get(table) if table else None
         implicit_rowid = table is not None and column is None and identifier_key(column_name) in {"rowid", "_rowid_", "oid"}
         output["columns"].append({"database": database, "table": table or table_name, "column": column or column_name,
-                                   "coverage_eligible": database == "main" and table is not None and column is not None,
+                                   "coverage_eligible": database == "main" and object_type == "table" and column is not None,
+                                   "object_type": object_type,
                                    "implicit_rowid": implicit_rowid})
     output["functions"] = sorted(functions)
     output["indirect_read_context_count"] = len(contexts)
@@ -354,7 +363,9 @@ def trace_schema_observations(trace: dict[str, Any], catalog: Catalog) -> dict[s
                     recognized = True
                 else:
                     section = "other"
-            match = re.match(r"^\*\*(.+?)\*\*\s*\|", line)
+            # The real tc_values-only fallback emits a bold identifier without
+            # the vector result's metadata pipe. Both are schema-column rows.
+            match = re.match(r"^\*\*(.+?)\*\*(?:\s*\||\s*$)", line)
             if not match or section not in {"visible_lookup_columns", "structural_keys"}:
                 continue
             resolved = catalog.resolve(match.group(1))
