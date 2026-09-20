@@ -321,7 +321,46 @@ def _response_text(response: Any) -> str | None:
     return None
 
 
-def trace_schema_observations(trace: dict[str, Any], catalog: Catalog) -> dict[str, Any]:
+def _foreign_key_target(line: str, catalog: Catalog, db_id: str | None) -> tuple[str, str] | None:
+    """Read only the native lookup's structural FK row, never SQL/reference text."""
+    match = re.fullmatch(r"\*\*(.+?)\*\*\s*\|\s*主键/外键\s*\|\s*(?:主键\s*\+\s*)?外键\s*→\s*(.+)", line)
+    if not match:
+        return None
+    source_parts = _identifier_parts(match.group(1))
+    if len(source_parts) == 3 and identifier_key(source_parts[0]) == "temp":
+        return None
+    target = match.group(2).strip()
+    # The native suffix starts with a Chinese comma. Ignore commas inside
+    # quoted identifiers, including SQLite's doubled quote escaping.
+    quote, index = "", 0
+    while index < len(target):
+        character = target[index]
+        if quote:
+            closing = "]" if quote == "[" else quote
+            if character == closing:
+                if quote != "[" and index + 1 < len(target) and target[index + 1] == closing:
+                    index += 1
+                else:
+                    quote = ""
+        elif character in ('"', "`", "["):
+            quote = character
+        elif character == "，":
+            if not re.fullmatch(r"，\s*用于\s+JOIN\s+.+", target[index:]):
+                return None
+            target = target[:index].strip()
+            break
+        index += 1
+    parts = _identifier_parts(target)
+    if len(parts) == 3 and identifier_key(parts[0]) in {"main", identifier_key(db_id or "")}:
+        # Resolve only this database's explicit qualifier; never discard an
+        # arbitrary database prefix merely because its table/column exists.
+        target = ".".join('"' + part.replace('"', '""') + '"' for part in parts[1:])
+    elif len(parts) == 3 and identifier_key(parts[0]) == "temp":
+        return None
+    return catalog.resolve(target)
+
+
+def trace_schema_observations(trace: dict[str, Any], catalog: Catalog, *, db_id: str | None = None) -> dict[str, Any]:
     linked: set[tuple[str, str]] = set()
     snapshot: set[tuple[str, str]] = set()
     invalid = Counter()
@@ -350,6 +389,12 @@ def trace_schema_observations(trace: dict[str, Any], catalog: Catalog) -> dict[s
         text = _response_text(event.get("response"))
         if text is None:
             continue
+        response = event.get("response")
+        declared = response.get("db_id") if isinstance(response, dict) else None
+        headers = re.findall(r"^【DB_ID】\s*([^\r\n]+)", text, flags=re.MULTILINE)
+        if db_id is not None and any(value != db_id for value in ([declared] if declared is not None else []) + headers):
+            invalid["lookup_database"] += 1
+            continue
         section = "visible_lookup_columns"
         recognized = False
         rank = 0
@@ -376,6 +421,13 @@ def trace_schema_observations(trace: dict[str, Any], catalog: Catalog) -> dict[s
             rank += 1
             (candidates if section == "visible_lookup_columns" else structural).add(resolved)
             locations[resolved].append({"lookup_response_index": lookup_responses, "visible_position": rank, "section": section})
+            if section == "structural_keys":
+                target = _foreign_key_target(line, catalog, db_id)
+                if target:
+                    structural.add(target)
+                    locations[target].append({"lookup_response_index": lookup_responses, "visible_position": rank,
+                                              "section": section, "source": "foreign_key_target",
+                                              "source_table": resolved[0], "source_column": resolved[1]})
         if recognized:
             recognized_responses += 1
     return {"linked_available": linked_available, "snapshot_available": snapshot_available,
@@ -435,7 +487,7 @@ def diagnose_question(record: dict[str, Any], prediction: dict[str, Any], score:
     gold = compile_references(record["gold_sql"], db_path, catalog, timeout_seconds=compile_timeout_seconds)
     final = compile_references(predicted_sql, db_path, catalog, timeout_seconds=compile_timeout_seconds)
     initial = (dict(final) if initial_sql == predicted_sql else compile_references(initial_sql, db_path, catalog, timeout_seconds=compile_timeout_seconds))
-    observed = trace_schema_observations(trace, catalog)
+    observed = trace_schema_observations(trace, catalog, db_id=record["db_id"])
     gold_columns, final_columns, initial_columns = column_pairs(gold), column_pairs(final), column_pairs(initial)
     observed_union = observed["candidates"] | observed["structural"]
     complete_gold = gold["references_complete"]

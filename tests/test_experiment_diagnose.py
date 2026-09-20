@@ -175,6 +175,84 @@ class EvidenceTests(FixtureCase):
         self.assertNotIn("suspected_visible_candidate_coverage_gap", row["suspected_causes"])
         self.assertNotIn("PRIVATE_VALUE", json.dumps(row))
 
+    def test_structural_foreign_key_target_is_visible_but_not_automatically_linked(self):
+        trace = self.trace()
+        trace["tool_trace"][-1]["response"]["result"] += (
+            '**Order Details.Order ID** | 主键/外键 | 主键 + 外键 → 客户.表.列 名，用于 JOIN Order Details 与 客户.表\n'
+        )
+        observed = trace_schema_observations(trace, self.catalog, db_id="fixture")
+        target = ("客户.表", "列 名")
+        self.assertIn(target, observed["structural"])
+        self.assertNotIn(target, observed["linked"])
+        self.assertNotIn(target, observed["candidates"])
+        self.assertEqual(observed["locations"][target][0], {
+            "lookup_response_index": 1, "visible_position": 3, "section": "structural_keys",
+            "source": "foreign_key_target", "source_table": "Order Details", "source_column": "Order ID",
+        })
+        row = self.row(trace=trace, gold='SELECT "列 名" FROM "客户.表"')
+        self.assertEqual(row["coverage"]["missing_from_visible_lookup_union"], [])
+        self.assertEqual(row["coverage"]["missing_from_linked_schema"], [{"table": "客户.表", "column": "列 名"}])
+        self.assertIn("reference_columns_visible_but_not_linked", row["suspected_causes"])
+
+    def test_foreign_key_target_supports_quoted_chinese_and_current_database(self):
+        for spelling, expected in [
+            ('"客户.表"."列 名"', ("客户.表", "列 名")),
+            ('`客户.表`.`order.id`', ("客户.表", "order.id")),
+            ('[客户.表].[列 名]', ("客户.表", "列 名")),
+            ('main."客户.表"."列 名"', ("客户.表", "列 名")),
+            ('fixture."客户.表"."列 名"', ("客户.表", "列 名")),
+            ('"Order Details"."customer""label"', ("Order Details", 'customer"label')),
+        ]:
+            with self.subTest(spelling=spelling):
+                trace = self.trace()
+                trace["tool_trace"][-1]["response"]["result"] += (
+                    f'**Order Details.Order ID** | 主键/外键 | 外键 → {spelling}，用于 JOIN left 与 right\n'
+                )
+                observed = trace_schema_observations(trace, self.catalog, db_id="fixture")
+                self.assertIn(expected, observed["structural"])
+
+    def test_foreign_key_target_rejects_missing_arrow_partial_and_foreign_identifiers(self):
+        for description in [
+            '外键 客户.表.列 名', '被外键引用（客户.表.列 名）',
+            '说明：外键 → 客户.表.列 名', '外键 → 列 名',
+            '外键 → missing_table.列 名', '外键 → other."客户.表"."列 名"',
+            '外键 → temp."客户.表"."列 名"', '外键 → "客户.表"."列 名"; SELECT 1',
+            '外键 → "客户.表"."列 名', '外键 → "客户.表"."列 名" WHERE 1=1',
+        ]:
+            with self.subTest(description=description):
+                trace = self.trace()
+                trace["tool_trace"][-1]["response"]["result"] += (
+                    f'**Order Details.Order ID** | 主键/外键 | {description}\n'
+                )
+                observed = trace_schema_observations(trace, self.catalog, db_id="fixture")
+                self.assertNotIn(("客户.表", "列 名"), observed["structural"])
+
+    def test_foreign_key_target_requires_lookup_structure_row_and_valid_source(self):
+        valid_line = '**Order Details.Order ID** | 主键/外键 | 外键 → 客户.表.列 名，用于 JOIN left 与 right\n'
+        for name, text in [
+            ("sql_db_query", "### 结构键\n" + valid_line),
+            ("sql_db_value_lookup", "### 值匹配提示\n" + valid_line),
+            ("sql_db_value_lookup", "### 召回的架构元素\n" + valid_line),
+            ("sql_db_value_lookup", "### 结构键\n" + valid_line.replace('主键/外键', 'TEXT')),
+            ("sql_db_value_lookup", "### 结构键\n" + valid_line.replace('**Order Details.Order ID**', '**unknown.id**')),
+            ("sql_db_value_lookup", "### 结构键\n" + valid_line.replace('**Order Details.Order ID**', '**temp."Order Details"."Order ID"**')),
+            ("sql_db_value_lookup", "### 结构键\nSELECT 客户.表.列 名 FROM table_name\n"),
+        ]:
+            with self.subTest(name=name, text=text):
+                trace = {"tool_trace": [{"kind": "response", "name": name, "response": {"result": text}}]}
+                observed = trace_schema_observations(trace, self.catalog, db_id="fixture")
+                self.assertNotIn(("客户.表", "列 名"), observed["structural"])
+
+    def test_lookup_declaring_another_database_is_not_available(self):
+        for response in [
+            {"db_id": "other", "result": "### 结构键\n**Order Details.Order ID** | 主键/外键 | 外键 → 客户.表.列 名"},
+            {"result": "【DB_ID】other\n### 结构键\n**Order Details.Order ID** | 主键/外键 | 外键 → 客户.表.列 名"},
+        ]:
+            trace = {"tool_trace": [{"kind": "response", "name": "sql_db_value_lookup", "response": response}]}
+            observed = trace_schema_observations(trace, self.catalog, db_id="fixture")
+            self.assertEqual(observed["candidates"] | observed["structural"], set())
+            self.assertEqual(observed["unresolved_identifier_counts"], {"lookup_database": 1})
+
     def test_view_gold_does_not_report_missing_logical_columns_when_base_is_linked(self):
         trace = self.trace()
         trace["linked_schema"] = ["Order Details.Order ID", "Order Details.Unit.Price"]

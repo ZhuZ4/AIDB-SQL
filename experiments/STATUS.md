@@ -17,7 +17,7 @@ were retained; subsequent infrastructure work builds on them.
 | P2 persistence | Transactional question/attempt records, process isolation, code/data/index/runtime freeze, actual-interpreter PID handshake, request checkpoints, balance detection and resumption implemented; 51 offline checks across evaluation, worker, recovery, batch boundaries and real Windows process trees passed |
 | Per-run audit | Reusable generation-only audit passes the complete smoke artifacts: 30 sessions, 29 submissions and one legitimate failure, zero integrity errors or missing evidence; 19 targeted tampering/recovery tests passed |
 | P3 B0 | First complete run `B0_20260921_01`: official EX **180/300 (60.00%)**, 290 executable submissions, 10 missing submissions, zero timeouts. Full engineering audit passed. Second predeclared run `B0_20260921_02` is active in `F:/data/VSCodeproject/AIDB-SQL-B0`, with the identical frozen commit `5a82da5` and fingerprint |
-| P4/P5 | B0 registered as current best; no improvement claimed. Full evidence review is underway, including output-role errors and same-named column/table selection. Read original papers before implementing one controlled method. Diagnosis/registry/evaluation checks remain passed; adoption still requires two matched runs per version |
+| P4/P5 | B0 remains current best; no improvement claimed. First candidate, explicit output-role assignment in data-link, is being implemented on `dev_20260921_060334` after trace review and reading DIN-SQL/RESDSQL methods, ablations and official implementations. See `methods/projection_roles_v1.md`; adoption requires two matched runs per version |
 
 Full local evidence lives in `.local-services/experiments/` and
 `.local-services/column-index/`. The active Goal continues; this file is a checkpoint,
@@ -39,6 +39,16 @@ failed without returned token usage; its bounded retry succeeded. Complete token
 totals and monetary costs therefore remain unknown. Every original prediction and
 score is retained, and the lightweight summary is `B0_20260921_01_summary.json`.
 
-The initial coverage diagnostic is tentative: manual review found that some columns
-classified as absent were already visible in foreign-key target text or later SQL.
-Do not present these gaps as established retrieval failures or expected BM25 gains.
+The initial coverage diagnostic was missing foreign-key target text. The parser now
+records these targets as visible structural information without treating them as
+explicitly linked columns. A pure text replay corrected eight failed questions,
+fully removing six flags (16 to 10); all linked selections remain unchanged.
+Twenty-seven diagnosis tests passed. The original report and a separate hash-bound
+replay are retained. Remaining reference gaps still do not establish causal retrieval
+failures or expected BM25 gains.
+
+Completed-run recovery now reuses validated artifacts instead of recomputing scores.
+Fifteen offline tests and a real read-only resume of the first B0 confirmed that
+completed files and the active repeat's global control remain unchanged. The main
+generation audit also checks candidate policy/skill hashes, with 28 offline tests;
+the frozen baseline generation code has not changed.
