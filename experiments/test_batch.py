@@ -149,6 +149,22 @@ class BatchBoundaryTests(unittest.TestCase):
         self.assertEqual([p['question_id'] for p in self.predictions()], [0, 1, 2])
         self.assertTrue(all(p['attempt'] == 1 for p in self.predictions()))
 
+    def test_data_link_policy_reaches_worker_and_frozen_manifest(self):
+        self.config['data_link_policy'] = 'explicit_projection_v1'
+        atomic_json(self.config_path, self.config)
+        self.invoke(lambda *args: self.success(), max_questions=1)
+        payload = self.dispatched[0]['payload']
+        self.assertEqual(validate_input(payload)['data_link_policy'], 'explicit_projection_v1')
+        manifest = json.loads((self.local / 'runs/offline/run_manifest.json').read_text(encoding='utf-8'))
+        self.assertEqual(manifest['config']['data_link_policy'], 'explicit_projection_v1')
+
+    def test_unknown_data_link_policy_cannot_dispatch(self):
+        self.config['data_link_policy'] = 'unknown-policy'
+        atomic_json(self.config_path, self.config)
+        with self.assertRaisesRegex(ValueError, 'Unknown data_link_policy'):
+            self.invoke(lambda *args: self.success(), max_questions=1)
+        self.assertEqual(self.dispatched, [])
+
     def test_orphan_final_result_recovers_without_rebilling(self):
         def completed_before_parent_crash(payload, run_dir, timeout, state, run_id, qid, attempt):
             atomic_json(run_dir / 'traces' / f'{qid}.attempt{attempt}.result.json', self.success())

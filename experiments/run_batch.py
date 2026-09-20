@@ -14,6 +14,7 @@ import time
 from experiments.state import State, TERMINAL, atomic_json, checkpoint_usage, single_instance
 from experiments.process_control import identity_alive, terminate_worker_tree, wait_worker_hello
 from experiments.worker import CONFIG_KEYS
+from skill_variants import validate_data_link_policy
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL = ROOT / ".local-services" / "experiments"
@@ -31,13 +32,15 @@ def sha(path):
 
 def code_snapshot():
     paths = [ROOT / "agent.py", ROOT / "utils.py", ROOT / "AGENTS.md"]
-    for folder, pattern in (("tools", "*.py"), ("skills", "*"), ("experiments", "*.py"), ("deploy", "*.py")):
+    for folder, pattern in (("tools", "*.py"), ("skills", "*"), ("skill_variants", "*"),
+                            ("experiments", "*.py"), ("deploy", "*.py")):
         paths.extend(p for p in (ROOT / folder).rglob(pattern) if p.is_file() and "__pycache__" not in p.parts)
     return {str(p.relative_to(ROOT)).replace("\\", "/"): sha(p) for p in sorted(set(paths))}
 
 
 def load_config(path, frozen_index=None):
     value = json.loads(path.read_text(encoding="utf-8-sig"))
+    value["data_link_policy"] = validate_data_link_policy(value.get("data_link_policy", "baseline"))
     from dotenv import dotenv_values
     env = dotenv_values(value.get("env_file", ROOT / ".env"))
     if value.get("model") != "deepseek-v4.1-flash" or env.get("LITE_LLM_MODEL_NAME") != value["model"]:

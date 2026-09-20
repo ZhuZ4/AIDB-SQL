@@ -78,6 +78,7 @@ from tools.native_sql_tools import (
 )
 from tools.tool_call_manager import get_tool_call_manager
 from utils import create_model
+from skill_variants import resolve_data_link_policy
 
 # 尝试导入 Web 服务相关模块（可选依赖，独立运行时无需这些模块）
 try:
@@ -196,7 +197,9 @@ class AdkAgent:
     TASK_TIMEOUT = 30 * 60
     APP_NAME = "adk_text2sql"
 
-    def __init__(self):
+    def __init__(self, data_link_policy: str = "baseline"):
+        self._data_link_selection = resolve_data_link_policy(
+            data_link_policy, project_root=pathlib.Path(current_dir))
         self.tool_manager = get_tool_call_manager()
         self._skills = self._load_skills()
         self._instruction_text = self._load_agents_instruction()
@@ -213,6 +216,10 @@ class AdkAgent:
         self._session_runtime_cap = int(os.getenv("ADK_SESSION_CACHE_SIZE", "64"))
 
     # ==================== 指令与技能加载 ====================
+
+    @property
+    def skill_policy_metadata(self) -> dict:
+        return self._data_link_selection.metadata()
 
     def _load_agents_instruction(self) -> str:
         """加载 AGENTS.md 主指令作为 Agent instruction"""
@@ -234,12 +241,23 @@ class AdkAgent:
         if skills_dir.exists():
             for skill_path in sorted(skills_dir.iterdir()):
                 if skill_path.is_dir() and (skill_path / "SKILL.md").exists():
+                    if skill_path.name == "data-link":
+                        # The selected policy is required: never silently fall
+                        # back or swallow malformed/missing variant failures.
+                        skill = load_skill_from_dir(self._data_link_selection.skill_path.parent)
+                        if skill.name != "data-link":
+                            raise ValueError("Selected data-link skill must keep its original name")
+                        skills.append(skill)
+                        logger.info(f"加载技能: {skill.name}")
+                        continue
                     try:
                         skill = load_skill_from_dir(skill_path)
                         skills.append(skill)
                         logger.info(f"加载技能: {skill.name}")
                     except Exception as e:
                         logger.warning(f"加载技能 {skill_path.name} 失败: {e}")
+        if sum(skill.name == "data-link" for skill in skills) != 1:
+            raise ValueError("Exactly one selected data-link skill must be loaded")
         return skills
 
     def _create_skill_toolset(self) -> SkillToolset:
@@ -1305,8 +1323,8 @@ class AgentService:
     确保工具列表、Agent 构建、事件处理逻辑完全一致。
     """
 
-    def __init__(self, experiment_profile: str = "full"):
-        self._adk = AdkAgent()
+    def __init__(self, experiment_profile: str = "full", data_link_policy: str = "baseline"):
+        self._adk = AdkAgent(data_link_policy=data_link_policy)
         self._experiment_profile = experiment_profile or "full"
         self._agent = self._build_agent()
         self._session_runtime: "OrderedDict[str, tuple]" = OrderedDict()
@@ -1314,6 +1332,10 @@ class AgentService:
             os.getenv("AGENT_SERVICE_SESSION_CACHE_SIZE", "16")
         )
         self.last_run_diagnostics: dict = {}
+
+    @property
+    def skill_policy_metadata(self) -> dict:
+        return self._adk.skill_policy_metadata
 
     def _build_experiment_instruction(self) -> str:
         profile = (self._experiment_profile or "full").lower()

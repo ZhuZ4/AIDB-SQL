@@ -24,11 +24,13 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from skill_variants import resolve_data_link_policy, validate_data_link_policy
+
 INPUT_KEYS = {"question_id", "db_id", "question", "evidence", "run_id", "attempt", "config"}
 CONFIG_KEYS = {
     "max_llm_calls", "question_timeout_seconds", "sql_timeout_seconds", "env_file",
     "db_root", "index_table", "index_version", "temperature", "max_sql_query_calls",
-    "request_timeout_seconds", "experiment_profile", "model_name",
+    "request_timeout_seconds", "experiment_profile", "model_name", "data_link_policy",
 }
 
 
@@ -100,6 +102,7 @@ def validate_input(payload: dict) -> dict:
     config = payload.get("config") or {}
     if not isinstance(config, dict) or set(config) - CONFIG_KEYS:
         raise ValueError("Unsupported worker config keys")
+    validate_data_link_policy(config.get("data_link_policy", "baseline"))
     return config
 
 
@@ -148,6 +151,8 @@ async def predict(payload: dict, usage_checkpoint: Path | None = None) -> dict:
     native_tools = None
     try:
         config = validate_input(payload)
+        selection = resolve_data_link_policy(config.get("data_link_policy", "baseline"), project_root=ROOT)
+        result["metadata"] = selection.metadata()
         from dotenv import load_dotenv
         env_path = Path(config.get("env_file", ROOT / ".env")).resolve(strict=True)
         load_dotenv(env_path, override=True)
@@ -183,7 +188,7 @@ async def predict(payload: dict, usage_checkpoint: Path | None = None) -> dict:
         # This must happen before agent/langchain/SQLAlchemy can import sqlite3.
         from experiments.sqlite_runtime import bootstrap_sqlite_runtime
         result["sqlite_runtime"] = bootstrap_sqlite_runtime()
-        result["metadata"] = {"sqlite_runtime": result["sqlite_runtime"]}
+        result["metadata"]["sqlite_runtime"] = result["sqlite_runtime"]
         from agent import AgentService
         from tools import native_sql_tools
         from utils import ModelUsageTracker, model_usage_tracker
@@ -200,7 +205,9 @@ async def predict(payload: dict, usage_checkpoint: Path | None = None) -> dict:
         tracker = ModelUsageTracker(max_calls=max_calls, on_update=save_usage)
         tracker.checkpoint()
         tracker_token = model_usage_tracker.set(tracker)
-        service = AgentService(experiment_profile=config.get("experiment_profile", "full"))
+        service = AgentService(experiment_profile=config.get("experiment_profile", "full"),
+                               data_link_policy=selection.policy)
+        result["metadata"].update(service.skill_policy_metadata)
         required_skills = {"data-link", "database-query-helper", "correct", "schema-exploration"}
         if required_skills - {s["name"] for s in service._adk.get_available_skills()}:
             raise ValueError("Required Text-to-SQL pipeline skills are missing")
