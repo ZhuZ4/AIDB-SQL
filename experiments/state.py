@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-import ctypes
 import json
 import os
 from pathlib import Path
 import sqlite3
 import time
+
+from experiments.process_control import process_identity
 
 TERMINAL = {"succeeded", "failed", "timeout"}
 
@@ -31,39 +32,6 @@ def atomic_json(path: Path, value):
         stream.flush()
         os.fsync(stream.fileno())
     os.replace(temporary, path)
-
-
-def process_identity(pid: int | None) -> str | None:
-    """Use process creation time to avoid treating a reused PID as our worker."""
-    if not pid:
-        return None
-    if os.name == "nt":
-        from ctypes import wintypes
-        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-        kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-        kernel.OpenProcess.restype = wintypes.HANDLE
-        kernel.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
-        kernel.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
-        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
-        handle = kernel.OpenProcess(0x1000, False, pid)
-        if not handle:
-            return None
-        try:
-            code = wintypes.DWORD()
-            if not kernel.GetExitCodeProcess(handle, ctypes.byref(code)) or code.value != 259:
-                return None
-            values = [wintypes.FILETIME() for _ in range(4)]
-            if not kernel.GetProcessTimes(handle, *[ctypes.byref(v) for v in values]):
-                raise OSError("Cannot read worker process creation time")
-            return str((values[0].dwHighDateTime << 32) | values[0].dwLowDateTime)
-        finally:
-            kernel.CloseHandle(handle)
-    try:
-        os.kill(pid, 0)
-        stat = Path(f"/proc/{pid}/stat")
-        return stat.read_text().split(")", 1)[1].split()[19] if stat.exists() else str(pid)
-    except ProcessLookupError:
-        return None
 
 
 @contextmanager

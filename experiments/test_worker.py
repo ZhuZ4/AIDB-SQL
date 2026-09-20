@@ -39,6 +39,14 @@ class WorkerInputTests(unittest.TestCase):
         self.assertNotIn("private-credential-123", str(result))
         self.assertNotIn(":password@", str(result))
 
+    def test_explicit_tpm_throttle_is_not_account_exhaustion(self):
+        self.assertEqual(classify_error({"status_code": 429, "code": "insufficient_quota",
+                                        "message": "Tokens per minute limit exceeded"}),
+                         ("transient_api", True))
+        self.assertEqual(classify_error({"status_code": 429, "code": "insufficient_quota",
+                                        "message": "The token-plan 1-week quota is exhausted"}),
+                         ("insufficient_balance", False))
+
 
 class SQLiteIsolationTests(unittest.TestCase):
     def setUp(self):

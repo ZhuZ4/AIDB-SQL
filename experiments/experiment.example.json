@@ -15,6 +15,6 @@
   "concurrency": 1,
   "retrieval": "column_dual_rrf",
   "repetition_count": 2,
-  "candidate_cost_ratio_limit": 1.5,
+  "candidate_cost_ratio_limit": null,
   "night_window": null
 }

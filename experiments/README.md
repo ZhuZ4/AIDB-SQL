@@ -22,6 +22,9 @@ failures, freeze a Git commit, then start B0. Existing run IDs reject changed co
 configuration, dataset order, or index manifests. Reuse the exact command to resume
 an interrupted run; live orphan workers prevent duplicate dispatch. Each question
 runs in a separate process with a 40-model-call budget and 15-minute hard deadline.
+On Windows, the actual interpreter registers its PID and creation identity before
+dispatch. The venv redirector's PID is not treated as the worker. Timeout cleanup
+terminates the actual process tree, and failed cleanup blocks another dispatch.
 Only transient infrastructure errors receive up to three retries; incorrect scores
 never trigger repeated sampling. Usage across attempts is accumulated. Missing usage
 is marked unknown. A provider balance error stops dispatch immediately and leaves
@@ -49,10 +52,12 @@ hash and download provenance are included in every run manifest. The supervisor
 prevents idle system sleep while alive without changing persistent power settings.
 
 Before retaining a candidate, compare the same 300 questions, report gains/regressions,
-cost and paired uncertainty, and perform two predeclared matched repetitions. The
-initial cost-ratio ceiling is 1.5; changing it requires a new experiment configuration.
-The API's absolute total spending/call limits remain unset as authorized. One main
-method changes per candidate. Unsuccessful experiments remain recorded.
+cost and paired uncertainty, and perform two predeclared matched repetitions. Monetary
+cost ratios remain unverified until matching provider Credit rates or billing records
+are available; do not substitute an unrelated USD price. The API's absolute total
+spending/call limits remain unset as authorized. The 40-call/900-second question limits
+remain fixed, and comparisons report calls, cached/uncached tokens and latency. One
+main method changes per candidate. Unsuccessful experiments remain recorded.
 
 Pre-baseline observation: the full index includes 99 columns without descriptions.
 Exact-name `PIC` has cosine similarity 1 and rank 1 in the name lane, but may fall

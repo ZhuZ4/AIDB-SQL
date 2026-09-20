@@ -1,0 +1,28 @@
+{
+  "run_id": "smoke_B0_20260921_01",
+  "purpose": "engineering_smoke_not_B0",
+  "git_commit": "96a0084",
+  "model": "deepseek-v4.1-flash",
+  "index_version": "column_dual_v1_624e825a0765bdb2e629",
+  "sqlite_version": "3.40.1",
+  "questions": 30,
+  "terminal_records": 30,
+  "submitted": 29,
+  "executable": 29,
+  "correct": 20,
+  "official_ex": 0.6666666666666666,
+  "timeout_count": 0,
+  "model_failures_without_submission": 1,
+  "interpretation": "Engineering chain exercised across all 11 databases; no baseline or method improvement claimed.",
+  "next_action": "Validate actual Windows worker identity/termination, freeze B0 and evaluate the complete fixed 300-question set.",
+  "observed_usage": {
+    "llm_calls": 295,
+    "prompt_tokens": 5201668,
+    "completion_tokens": 42266,
+    "cached_tokens": 4663936,
+    "duration_seconds": 958.260999999984,
+    "api_cost": null,
+    "credits_consumed": null,
+    "usage_source": "provider_response"
+  }
+}

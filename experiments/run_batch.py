@@ -12,6 +12,7 @@ import sys
 import time
 
 from experiments.state import State, TERMINAL, atomic_json, checkpoint_usage, single_instance
+from experiments.process_control import identity_alive, terminate_worker_tree, wait_worker_hello
 from experiments.worker import CONFIG_KEYS
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -85,33 +86,44 @@ def run_worker(payload, run_dir, timeout, state, run_id, qid, attempt):
     source = Path(str(prefix) + ".input.json")
     target = Path(str(prefix) + ".result.json")
     ready = Path(str(prefix) + ".ready.json")
+    hello = Path(str(prefix) + ".hello.json")
     usage_checkpoint = Path(str(prefix) + ".usage.json")
     atomic_json(source, payload)
     env = os.environ.copy()
     env.update(PYTHONIOENCODING="utf-8", PYTHONUTF8="1", PYTHONUNBUFFERED="1")
     start = time.monotonic()
+    worker_identity = None
     with Path(str(prefix) + ".log").open("w", encoding="utf-8") as log:
         proc = subprocess.Popen([sys.executable, "-m", "experiments.worker", "--input", str(source), "--output", str(target),
-                                 "--dispatch-ready", str(ready), "--usage-checkpoint", str(usage_checkpoint)],
+                                 "--dispatch-ready", str(ready), "--worker-hello", str(hello),
+                                 "--usage-checkpoint", str(usage_checkpoint)],
                                 cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT,
+                                start_new_session=os.name != "nt",
                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        state.attach_worker(run_id, qid, proc.pid)
-        atomic_json(ready, {"worker_pid": proc.pid, "run_id": run_id, "question_id": qid, "attempt": attempt})
         timed_out = False
         try:
-            while proc.poll() is None:
-                elapsed = time.monotonic() - start
-                if elapsed > timeout:
+            # Windows venv python.exe may be a redirector. The interpreter
+            # publishes its actual PID before it is allowed to call the API.
+            worker_identity = wait_worker_hello(hello, min(20, timeout))
+            state.attach_worker(run_id, qid, worker_identity["worker_pid"])
+            atomic_json(ready, {**worker_identity, "run_id": run_id, "question_id": qid, "attempt": attempt})
+            next_heartbeat = 0.0
+            while identity_alive(worker_identity):
+                remaining = timeout - (time.monotonic() - start)
+                if remaining <= 0:
                     timed_out = True
-                    proc.kill()
-                    proc.wait(timeout=15)
+                    terminate_worker_tree(proc, worker_identity)
                     break
-                state.heartbeat(run_id, qid, timeout)
-                time.sleep(2)
-        except BaseException:
+                if time.monotonic() >= next_heartbeat:
+                    state.heartbeat(run_id, qid, timeout)
+                    next_heartbeat = time.monotonic() + 2
+                time.sleep(min(0.2, remaining))
             if proc.poll() is None:
-                proc.kill()
-                proc.wait(timeout=15)
+                # A dead interpreter cannot make further API calls; reap any
+                # remaining redirector without interpreting it as the worker.
+                terminate_worker_tree(proc, worker_identity)
+        except BaseException:
+            terminate_worker_tree(proc, worker_identity)
             raise
     if target.exists() and not timed_out:
         result = json.loads(target.read_text(encoding="utf-8-sig"))

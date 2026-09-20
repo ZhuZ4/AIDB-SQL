@@ -38,6 +38,19 @@ def classify_error(error: dict | str | None) -> tuple[str, bool]:
         return "", False
     message = json.dumps(error, ensure_ascii=False, default=str).lower()
     status = error.get("status_code") if isinstance(error, dict) else None
+    account_exhausted = any(token in message for token in (
+        "insufficient_balance", "insufficient balance", "credit balance", "credits exhausted",
+        "out of credits", "billing_hard_limit", "余额不足", "额度耗尽", "余额已耗尽",
+        "token-plan 1-week quota", "token-plan quota", "account balance is too low",
+    ))
+    # Some provider products reuse insufficient_quota for TPS/TPM throttling.
+    # An explicit short-window rate message is not an exhausted account balance.
+    rate_window = any(token in message for token in (
+        "tokens per minute", "requests per minute", "tokens per second", "requests per second",
+        "tpm limit", "tps limit", "rate limit exceeded", "token rate limit",
+    ))
+    if rate_window and not account_exhausted and (status == 429 or "insufficient_quota" in message):
+        return "transient_api", True
     if any(token in message for token in (
         "insufficient_balance", "insufficient balance", "insufficient_quota",
         "quota exhausted", "quota has been exhausted", "credit balance",
@@ -249,16 +262,24 @@ def main() -> int:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--dispatch-ready", type=Path,
                         help="Wait for the scheduler's durable PID-registration handshake before any API call")
+    parser.add_argument("--worker-hello", type=Path,
+                        help="Publish the actual interpreter PID, which may differ from a Windows launcher PID")
     parser.add_argument("--usage-checkpoint", type=Path,
                         help="Atomically persist call counts before requests and usage after each response")
     args = parser.parse_args()
     if args.dispatch_ready is not None:
-        deadline = time.monotonic() + 20
-        while not args.dispatch_ready.is_file():
-            if time.monotonic() >= deadline:
-                print(json.dumps({"status": "failed", "error_category": "dispatch_not_registered"}))
-                return 3
-            time.sleep(0.1)
+        if args.worker_hello is None:
+            parser.error("--dispatch-ready requires --worker-hello")
+        # This helper deliberately does not import state/sqlite3, preserving
+        # the runtime's read-only SQLite bootstrap order.
+        from experiments.process_control import worker_handshake
+        try:
+            worker_handshake(args.worker_hello, args.dispatch_ready)
+        except (RuntimeError, TimeoutError) as error:
+            print(json.dumps({"status": "failed", "error_category": "dispatch_not_registered", "error": str(error)}))
+            return 3
+    elif args.worker_hello is not None:
+        parser.error("--worker-hello requires --dispatch-ready")
     logging.basicConfig(level=logging.ERROR)
     # Third-party SDK banners/logs are local stderr; stdout stays machine-readable.
     with redirect_stdout(sys.stderr):
