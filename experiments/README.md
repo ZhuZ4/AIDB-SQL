@@ -95,12 +95,16 @@ SQL or literal values. A candidate must meet the registry's matching-model, data
 budget and two-repetition requirements before the best commit can change. Unknown
 monetary costs remain unknown. Rejected experiments and review/cycle triggers persist.
 
-The active B0 uses a separate frozen checkout at `F:/data/VSCodeproject/AIDB-SQL-B0`
-and commit `5a82da5`. Its local service directory points to this project's ignored
-service directory. Resume that run from the frozen checkout, not a later edited tree:
+The first complete B0 scored 180/300 (60.00% official EX). Its predictions, scores,
+engineering audit and development-only diagnosis are retained locally. The second
+predeclared B0 run uses the same separate frozen checkout at
+`F:/data/VSCodeproject/AIDB-SQL-B0` and commit `5a82da5`. Its local service directory
+points to this project's ignored service directory. Resume the unfinished repeat
+from the frozen checkout, not a later edited tree; do not rerun the completed first
+run's old supervisor to regenerate already-registered score artifacts:
 
 ```powershell
 Push-Location 'F:\data\VSCodeproject\AIDB-SQL-B0'
-& 'F:\data\VSCodeproject\AIDB-SQL\.venv\Scripts\python.exe' -m experiments.supervisor --run-id B0_20260921_01
+& 'F:\data\VSCodeproject\AIDB-SQL\.venv\Scripts\python.exe' -m experiments.supervisor --run-id B0_20260921_02
 Pop-Location
 ```

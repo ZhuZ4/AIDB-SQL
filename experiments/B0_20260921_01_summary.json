@@ -1,0 +1,157 @@
+{
+  "run_id": "B0_20260921_01",
+  "git_commit": "5a82da5ad0e2ad301f33bb8f5afdbdba46030fa4",
+  "source_sha256": "def4b2b43a9b06955193418f24c9be170eb6d83763ab702311790e0cdda8c791",
+  "selection_manifest_sha256": "a9ebfab6532b6c4fd94e6ee87e9d797673b770a82389c9584e772c0e409017ae",
+  "index_version": "column_dual_v1_624e825a0765bdb2e629",
+  "model": "deepseek-v4.1-flash",
+  "sqlite_runtime_version": "3.40.1",
+  "official_metric": "official_mini_dev_EX_tuple_set_equality",
+  "overall": {
+    "count": 300,
+    "correct": 180,
+    "ex": 0.6,
+    "ex_percent": 60.0,
+    "submitted": 290,
+    "submission_rate": 0.9666666666666667,
+    "executable": 290,
+    "timeout_count": 0,
+    "status_counts": {
+      "scored": 290,
+      "missing_sql": 10
+    },
+    "generation_status_counts": {
+      "succeeded": 290,
+      "failed": 10
+    },
+    "evaluation_seconds": 19.646000000080676
+  },
+  "by_db_id": {
+    "california_schools": {
+      "count": 18,
+      "correct": 7,
+      "ex_percent": 38.888888888888886
+    },
+    "card_games": {
+      "count": 32,
+      "correct": 23,
+      "ex_percent": 71.875
+    },
+    "codebase_community": {
+      "count": 30,
+      "correct": 22,
+      "ex_percent": 73.33333333333333
+    },
+    "debit_card_specializing": {
+      "count": 17,
+      "correct": 8,
+      "ex_percent": 47.05882352941177
+    },
+    "european_football_2": {
+      "count": 30,
+      "correct": 20,
+      "ex_percent": 66.66666666666667
+    },
+    "financial": {
+      "count": 19,
+      "correct": 5,
+      "ex_percent": 26.31578947368421
+    },
+    "formula_1": {
+      "count": 40,
+      "correct": 20,
+      "ex_percent": 50.0
+    },
+    "student_club": {
+      "count": 29,
+      "correct": 21,
+      "ex_percent": 72.41379310344827
+    },
+    "superhero": {
+      "count": 31,
+      "correct": 26,
+      "ex_percent": 83.87096774193549
+    },
+    "thrombosis_prediction": {
+      "count": 30,
+      "correct": 14,
+      "ex_percent": 46.666666666666664
+    },
+    "toxicology": {
+      "count": 24,
+      "correct": 14,
+      "ex_percent": 58.333333333333336
+    }
+  },
+  "by_difficulty": {
+    "challenging": {
+      "count": 61,
+      "correct": 30,
+      "ex_percent": 49.18032786885246
+    },
+    "moderate": {
+      "count": 150,
+      "correct": 86,
+      "ex_percent": 57.333333333333336
+    },
+    "simple": {
+      "count": 89,
+      "correct": 64,
+      "ex_percent": 71.91011235955057
+    }
+  },
+  "usage": {
+    "llm_calls": {
+      "complete_total": 2882,
+      "known_total": 2882,
+      "questions_with_unknown_total": 0
+    },
+    "prompt_tokens": {
+      "complete_total": null,
+      "known_total": 51437910,
+      "questions_with_unknown_total": 1
+    },
+    "completion_tokens": {
+      "complete_total": null,
+      "known_total": 417021,
+      "questions_with_unknown_total": 1
+    },
+    "total_tokens": {
+      "complete_total": null,
+      "known_total": 51854931,
+      "questions_with_unknown_total": 1
+    },
+    "cached_tokens": {
+      "complete_total": null,
+      "known_total": 45877760,
+      "questions_with_unknown_total": 1
+    },
+    "reasoning_tokens": {
+      "complete_total": null,
+      "known_total": 0,
+      "questions_with_unknown_total": 1
+    },
+    "duration_seconds": {
+      "complete_total": 9160.294999999925,
+      "known_total": 9160.294999999925,
+      "questions_with_unknown_total": 0
+    }
+  },
+  "monetary_cost": null,
+  "monetary_cost_verified": false,
+  "engineering_audit": {
+    "passed": true,
+    "errors": 0,
+    "unverified_evidence": 0,
+    "unique_sessions": 301,
+    "observation_counts": {
+      "agent_submitted_earlier_accepted_query": 44,
+      "agent_submission_without_prior_matching_query_call": 4,
+      "sql_calls_denied_or_not_physically_executed": 20,
+      "provider_usage_partly_unreported": 1
+    }
+  },
+  "scores_sha256": "1051a3582f1c864146442b2791c0f4cfc90897f38f3fa675f413d004a6b4ad3e",
+  "predictions_sha256": "31e38b17754a9d2ac800c2449440ec65acf7bf75cb9b3a28bb1c7771ae15da63",
+  "interpretation": "First complete B0 run, not a performance improvement or stable repeated estimate. All 300 fixed questions remain in the denominator. One transient API error retried within the shared question budget; its token usage is unreported. Matched run B0_20260921_02 is in progress. Gold-reference coverage gaps are hypotheses, not established error causes."
+}
