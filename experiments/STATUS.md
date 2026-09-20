@@ -15,6 +15,7 @@ were retained; subsequent infrastructure work builds on them.
 | P1 full index | Complete and active: `column_dual_v1_624e825a0765bdb2e629`, 798 fields / 1497 vectors; reproducible and database-isolated |
 | P2 agent | Fixed 30-question smoke complete: 30 terminal records, 29 genuine submissions/executable SQL, official EX 20/30 (66.67%), 0 timeouts; one bounded model failure retained |
 | P2 persistence | Transactional question/attempt records, process isolation, code/data/index/runtime freeze, actual-interpreter PID handshake, request checkpoints, balance detection and resumption implemented; 51 offline checks across evaluation, worker, recovery, batch boundaries and real Windows process trees passed |
+| Per-run audit | Reusable generation-only audit passes the complete smoke artifacts: 30 sessions, 29 submissions and one legitimate failure, zero integrity errors or missing evidence; 19 targeted tampering/recovery tests passed |
 | P3 B0 | Running as `B0_20260921_01` from `F:/data/VSCodeproject/AIDB-SQL-B0`, frozen commit `5a82da5`; no baseline score claimed before all 300 are processed and scored |
 | P4/P5 | Offline diagnosis and persistent research registry implemented; 22 diagnosis, 25 registry, and 18 evaluation/comparison tests passed. Repeat count/order, raw submission credit, runtime identity, and atomic best-version persistence are checked. Await full B0 evidence before choosing a method; best commit remains unset |
 

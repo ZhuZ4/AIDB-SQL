@@ -72,9 +72,20 @@ an observation for later error analysis, not an implemented baseline improvement
 After official scoring completes, run diagnosis from the main development checkout:
 
 ```powershell
+& .\.venv\Scripts\python.exe -m experiments.audit_run --run-dir .local-services/experiments/runs/B0_20260921_01
 & .\.venv\Scripts\python.exe -m experiments.diagnose --run-dir .local-services/experiments/runs/B0_20260921_01
 & .\.venv\Scripts\python.exe -m experiments.research_registry status
 ```
+
+The engineering audit reads generation inputs, manifests, worker outputs, tool traces,
+and usage checkpoints only. It requires the full fixed set and binds its report to
+their hashes. Failed or timed-out questions remain valid terminal records; missing
+evidence, database/session drift, lost raw submissions, or contradictory accounting
+cannot pass. Agent skill-order deviations are recorded separately. It does not claim
+to independently observe hidden retrieval candidates or physical connection state.
+For the fixed 30-question smoke use `--subset smoke`. Existing reports are preserved;
+use `--output <run-dir>/engineering_audit_new.json` for a new audit. Review the audit
+and relevant implementation tests before passing `--checks-passed` to `compare.py`.
 
 Diagnosis compiles SQL under read-only EXPLAIN to identify referenced tables/columns;
 it does not execute gold queries, change scores or choose a method. Gold-reference
