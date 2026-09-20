@@ -7,7 +7,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from experiments.audit_run import AGGREGATED, audit_run, digest_object
+from experiments.audit_run import AGGREGATED, DATA_LINK_SKILL_PATHS, FROZEN_KEYS, audit_run, digest_object
 from experiments.prepare_dataset import sha256_file, write_json, write_jsonl
 
 
@@ -86,7 +86,7 @@ class EngineeringAuditTests(unittest.TestCase):
         mutate(result)
         write_json(path, result)
         # Keep the export aligned when deliberately testing a deeper invariant.
-        for key in ("status", "error_category", "session_id", "submitted_final_sql", "final_sql", "final_sql_source", "trace", "usage", "sqlite_runtime", "model", "index_version"):
+        for key in ("status", "error_category", "session_id", "submitted_final_sql", "final_sql", "final_sql_source", "trace", "usage", "sqlite_runtime", "model", "index_version", "metadata"):
             if key in result:
                 self.predictions[question_id][key] = copy.deepcopy(result[key])
         self.save_predictions()
@@ -98,6 +98,27 @@ class EngineeringAuditTests(unittest.TestCase):
     @staticmethod
     def codes(report):
         return {row["code"] for row in report["engineering_findings"] + report["unverified_evidence"]}
+
+    def save_manifest_fingerprint(self):
+        self.manifest["fingerprint"] = digest_object({key: self.manifest[key] for key in FROZEN_KEYS})
+        write_json(self.run / "run_manifest.json", self.manifest)
+
+    def configure_data_link_policy(self, policy="explicit_projection_v1"):
+        self.config["data_link_policy"] = policy
+        self.manifest["code_sha256"].update({DATA_LINK_SKILL_PATHS["baseline"]: "a" * 64,
+                                           DATA_LINK_SKILL_PATHS["explicit_projection_v1"]: "b" * 64})
+        self.save_manifest_fingerprint()
+        for qid in range(30):
+            path = self.path(qid, "input")
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["config"]["data_link_policy"] = policy
+            write_json(path, payload)
+            result = json.loads(self.path(qid, "result").read_text(encoding="utf-8"))
+            result["metadata"] = {"sqlite_runtime": self.runtime, "data_link_policy": policy,
+                                  "data_link_skill_sha256": ("a" if policy == "baseline" else "b") * 64}
+            write_json(self.path(qid, "result"), result)
+            self.predictions[qid]["metadata"] = copy.deepcopy(result["metadata"])
+        self.save_predictions()
 
     def test_complete_artifact_audit_does_not_need_gold_scores_sqlite_or_env(self):
         before = sha256_file(self.run / "predictions.jsonl")
@@ -277,6 +298,84 @@ class EngineeringAuditTests(unittest.TestCase):
         self.assertIn("frozen_manifest_fingerprint_mismatch", self.codes(report))
         with self.assertRaises(FileExistsError):
             self.execute()
+
+    def test_projection_policy_metadata_is_bound_to_manifest_skill_hash(self):
+        self.configure_data_link_policy()
+        report = self.execute()
+        self.assertTrue(report["passed"], report["engineering_findings"])
+        self.assertEqual(report["summary"]["data_link_policy"], "explicit_projection_v1")
+        self.assertEqual(report["summary"]["data_link_skill_path"], "skill_variants/projection_roles/data-link/SKILL.md")
+        self.assertEqual(report["summary"]["data_link_skill_sha256"], "b" * 64)
+
+    def test_unknown_manifest_policy_is_rejected_even_when_workers_agree(self):
+        self.configure_data_link_policy("unknown_variant")
+        report = self.execute()
+        self.assertFalse(report["passed"])
+        self.assertIn("manifest_unknown_data_link_policy", self.codes(report))
+        self.assertIn("worker_unknown_data_link_policy", self.codes(report))
+
+    def test_attempt_policy_must_match_the_frozen_manifest(self):
+        self.configure_data_link_policy()
+        path = self.path(0, "input")
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["config"]["data_link_policy"] = "baseline"
+        write_json(path, payload)
+        report = self.execute()
+        self.assertFalse(report["passed"])
+        self.assertTrue(any(row["code"] == "worker_frozen_config_changed" and row.get("field") == "data_link_policy"
+                            for row in report["engineering_findings"]))
+
+    def test_policy_and_skill_hash_metadata_tampering_are_detected(self):
+        self.configure_data_link_policy()
+        self.mutate_result(lambda result: result["metadata"].update(data_link_policy="baseline", data_link_skill_sha256="c" * 64))
+        report = self.execute()
+        self.assertIn("worker_data_link_policy_metadata_mismatch", self.codes(report))
+        self.assertIn("worker_data_link_skill_hash_mismatch", self.codes(report))
+
+    def test_candidate_missing_or_partial_metadata_is_unverified_after_model_calls(self):
+        self.configure_data_link_policy()
+        self.mutate_result(lambda result: result.update(metadata={"sqlite_runtime": self.runtime}))
+        self.mutate_result(lambda result: result["metadata"].pop("data_link_skill_sha256"), question_id=1)
+        report = self.execute()
+        self.assertEqual(report["result"], "incomplete_evidence")
+        self.assertEqual(report["engineering_findings"], [])
+        self.assertIn("worker_data_link_metadata_missing_after_model_calls", self.codes(report))
+        self.assertIn("worker_data_link_metadata_incomplete", self.codes(report))
+
+    def test_candidate_skill_hash_requires_a_frozen_manifest_entry(self):
+        self.configure_data_link_policy()
+        self.manifest["code_sha256"].pop(DATA_LINK_SKILL_PATHS["explicit_projection_v1"])
+        self.save_manifest_fingerprint()
+        report = self.execute()
+        self.assertEqual(report["result"], "incomplete_evidence")
+        self.assertIn("manifest_data_link_skill_hash_missing", self.codes(report))
+        self.assertIn("worker_data_link_skill_hash_not_bound_by_manifest", self.codes(report))
+
+    def test_exported_policy_metadata_must_equal_the_final_worker_record(self):
+        self.configure_data_link_policy()
+        self.predictions[0]["metadata"]["data_link_skill_sha256"] = "c" * 64
+        self.save_predictions()
+        report = self.execute()
+        self.assertTrue(any(row["code"] == "exported_final_worker_record_changed" and row.get("field") == "metadata"
+                            for row in report["engineering_findings"]))
+
+    def test_legacy_baseline_without_policy_fields_still_passes(self):
+        for qid in range(30):
+            path = self.path(qid, "result")
+            result = json.loads(path.read_text(encoding="utf-8"))
+            result["metadata"] = {"sqlite_runtime": self.runtime}
+            write_json(path, result)
+            self.predictions[qid]["metadata"] = copy.deepcopy(result["metadata"])
+        self.save_predictions()
+        report = self.execute()
+        self.assertTrue(report["passed"], report["engineering_findings"])
+        self.assertEqual(report["summary"]["data_link_policy"], "baseline")
+
+    def test_baseline_policy_metadata_is_checked_when_present(self):
+        self.configure_data_link_policy("baseline")
+        self.mutate_result(lambda result: result["metadata"].update(data_link_skill_sha256="b" * 64))
+        report = self.execute()
+        self.assertIn("worker_data_link_skill_hash_mismatch", self.codes(report))
 
 
 if __name__ == "__main__":

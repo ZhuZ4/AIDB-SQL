@@ -25,7 +25,11 @@ INPUT_KEYS = GENERATION_KEYS | {"run_id", "attempt", "config"}
 CONFIG_KEYS = {
     "max_llm_calls", "question_timeout_seconds", "sql_timeout_seconds", "env_file", "db_root",
     "index_table", "index_version", "temperature", "max_sql_query_calls", "request_timeout_seconds",
-    "experiment_profile", "model_name",
+    "experiment_profile", "model_name", "data_link_policy",
+}
+DATA_LINK_SKILL_PATHS = {
+    "baseline": "skills/data-link/SKILL.md",
+    "explicit_projection_v1": "skill_variants/projection_roles/data-link/SKILL.md",
 }
 TERMINAL = {"succeeded", "failed", "timeout"}
 ACCEPTED = {"accepted", "accepted_with_warning"}
@@ -378,6 +382,14 @@ def audit_run(dataset_dir: Path, run_dir: Path, *, subset: str = "all",
                     for row in questions), "generation_contains_answer_or_unexpected_fields")
     audit.check(all(isinstance(value, int) and not isinstance(value, bool) for value in ids), "invalid_question_id_type")
     config = manifest.get("config") or {}
+    data_link_policy = config.get("data_link_policy", "baseline")
+    known_policy = isinstance(data_link_policy, str) and data_link_policy in DATA_LINK_SKILL_PATHS
+    audit.check(known_policy, "manifest_unknown_data_link_policy")
+    skill_path = DATA_LINK_SKILL_PATHS.get(data_link_policy) if known_policy else None
+    skill_hash = (manifest.get("code_sha256") or {}).get(skill_path) if skill_path else None
+    skill_hash_known = isinstance(skill_hash, str) and re.fullmatch(r"[0-9a-fA-F]{64}", skill_hash) is not None
+    if known_policy and data_link_policy != "baseline" and not skill_hash_known:
+        audit.note("unverified", "manifest_data_link_skill_hash_missing")
     index = manifest.get("index_manifest") or {}
     expected_runtime = runtime_identity(manifest.get("sqlite_runtime"))
     audit.check(bool(expected_runtime.get("version")) and bool(expected_runtime.get("dll_sha256")), "frozen_runtime_identity_missing")
@@ -445,8 +457,11 @@ def audit_run(dataset_dir: Path, run_dir: Path, *, subset: str = "all",
             worker_config = payload.get("config") or {}
             for key, default in (("index_table", None), ("index_version", None), ("temperature", 0),
                                  ("sql_timeout_seconds", 30), ("max_sql_query_calls", 4), ("experiment_profile", "full"),
-                                 ("request_timeout_seconds", 120)):
+                                 ("request_timeout_seconds", 120), ("data_link_policy", "baseline")):
                 audit.check(worker_config.get(key, default) == config.get(key, default), "worker_frozen_config_changed", field=key, **attempt_context)
+            worker_policy = worker_config.get("data_link_policy", "baseline")
+            audit.check(isinstance(worker_policy, str) and worker_policy in DATA_LINK_SKILL_PATHS,
+                        "worker_unknown_data_link_policy", **attempt_context)
             for key in ("db_root", "env_file"):
                 audit.check(bool(worker_config.get(key)) and bool(config.get(key)) and Path(worker_config[key]).resolve() == Path(config[key]).resolve(),
                             "worker_frozen_path_changed", field=key, **attempt_context)
@@ -473,6 +488,22 @@ def audit_run(dataset_dir: Path, run_dir: Path, *, subset: str = "all",
             usage = audit_usage(audit, result, checkpoint, expected_model=config.get("model", ""), **attempt_context)
             usage_checks.append(usage)
             calls = usage["calls"]
+            metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+            policy_metadata_present = "data_link_policy" in metadata or "data_link_skill_sha256" in metadata
+            if policy_metadata_present:
+                if "data_link_policy" not in metadata or "data_link_skill_sha256" not in metadata:
+                    audit.note("unverified", "worker_data_link_metadata_incomplete", **attempt_context)
+                if "data_link_policy" in metadata:
+                    audit.check(metadata["data_link_policy"] == data_link_policy,
+                                "worker_data_link_policy_metadata_mismatch", **attempt_context)
+                if "data_link_skill_sha256" in metadata:
+                    if skill_hash_known:
+                        audit.check(metadata["data_link_skill_sha256"] == skill_hash,
+                                    "worker_data_link_skill_hash_mismatch", **attempt_context)
+                    else:
+                        audit.note("unverified", "worker_data_link_skill_hash_not_bound_by_manifest", **attempt_context)
+            elif known_policy and data_link_policy != "baseline" and number(calls) and calls > 0:
+                audit.note("unverified", "worker_data_link_metadata_missing_after_model_calls", **attempt_context)
             if calls is not None:
                 audit.check(number(calls) and (not number(budget) or calls <= budget), "attempt_llm_budget_exceeded", **attempt_context)
                 used_calls += calls
@@ -493,7 +524,7 @@ def audit_run(dataset_dir: Path, run_dir: Path, *, subset: str = "all",
                 audit.note("unverified", "worker_duration_unreported", **attempt_context)
             tool_checks.append(audit_tool_trace(audit, result, expected_db=question["db_id"], max_sql_calls=max_sql_calls, **attempt_context))
             if attempt == last_attempt:
-                for key in ("status", "error_category", "session_id", "final_sql_source", "trace", "usage", "sqlite_runtime", "model", "index_version"):
+                for key in ("status", "error_category", "session_id", "final_sql_source", "trace", "usage", "sqlite_runtime", "model", "index_version", "metadata"):
                     audit.check(prediction.get(key) == result.get(key), "exported_final_worker_record_changed", field=key, **attempt_context)
                 audit.check(raw_sql(prediction) == raw_sql(result), "exported_raw_submission_changed", **attempt_context)
                 if "final_sql" in prediction:
@@ -554,7 +585,9 @@ def audit_run(dataset_dir: Path, run_dir: Path, *, subset: str = "all",
                     "engineering_error_count": len(errors), "unverified_evidence_count": len(unverified),
                     "agent_and_runtime_observation_count": len(observations),
                     "all_recorded_usage_complete": all(usage["usage_complete"] for row in details for usage in row["usage"]),
-                    "sqlite_runtime": expected_runtime, "index_version": config.get("index_version"), "index_table": config.get("index_table")},
+                    "sqlite_runtime": expected_runtime, "index_version": config.get("index_version"), "index_table": config.get("index_table"),
+                    "data_link_policy": data_link_policy, "data_link_skill_path": skill_path,
+                    "data_link_skill_sha256": skill_hash if skill_hash_known else None},
         "engineering_findings": errors, "unverified_evidence": unverified, "observations": observations, "questions": details,
         "source_artifact_sha256": dict(sorted(audit.hashes.items())), "audit_code_sha256": sha256_file(Path(__file__)),
         "timing_tolerance_seconds": timing_tolerance_seconds,
