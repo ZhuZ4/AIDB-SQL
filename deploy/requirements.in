@@ -1,0 +1,11 @@
+# Runtime for the Windows Agent and the official SQLite evaluators.
+google-adk
+litellm
+openai
+SQLAlchemy
+langchain-community
+python-dotenv
+psycopg2-binary
+func-timeout
+numpy
+pymysql

@@ -11,6 +11,10 @@ BIRD Dev 开发集向量检索器 (pgvector only)
 
   每层使用 pgvector 余弦相似度排序；列级附带"同表近名兄弟列"扩展。
 
+  BIRD_DEV_INDEX_LAYOUT=column_dual_v1 时，读取 column_embeddings：
+  列名和说明分别执行向量召回，通过记录 ID 做 RRF 融合。表列表由命中列
+  分组产生，不依赖旧表向量。此模式尚未接入 BM25。
+
 存储架构：
   - 数据库: bird_dev (PostgreSQL)
   - Schema: bird_dev_emb_v2（可通过 BIRD_DEV_SCHEMA 覆盖）
@@ -367,6 +371,79 @@ def _load_rows_by_ids(engine: Engine, ids: List[int]) -> Dict[int, Dict[str, Any
 # ==================== 核心三阶段检索 ====================
 
 
+def _retrieve_dual_columns(
+    engine: Engine,
+    query_embedding: List[float],
+    result: RetrievalResult,
+    table_top_k: int,
+    column_top_k: int,
+) -> RetrievalResult:
+    """Read the SQLite column index with independent name/description vectors.
+
+    Table records are in-memory summaries of the column hits; no table vector
+    is synthesized or persisted. RRF scores are ranks, not cosine scores.
+    """
+    if table_top_k <= 0 or column_top_k <= 0:
+        return result
+    schema = _get_schema_name().replace('"', '""')
+    table = os.getenv('BIRD_DEV_COLUMN_TABLE', 'column_embeddings').replace('"', '""')
+    expected_version = os.getenv('BIRD_DEV_INDEX_VERSION', '').strip()
+    qualified = f'"{schema}"."{table}"'
+    params = {
+        'db_id': result.db_id,
+        'query': '[' + ','.join(map(str, query_embedding)) + ']',
+        'top_k': max(40, column_top_k * 4),
+    }
+    candidates: Dict[int, Dict[str, Any]] = {}
+    with engine.connect() as conn:
+        for field, channel in (('name_embedding', 'name'), ('description_embedding', 'description')):
+            rows = conn.execute(text(f'''
+                SELECT id, db_id, table_name, column_name, description,
+                       description_source, metadata,
+                       1 - ({field} <=> CAST(:query AS vector)) AS similarity
+                FROM {qualified}
+                WHERE db_id = :db_id AND {field} IS NOT NULL
+                ORDER BY {field} <=> CAST(:query AS vector), id
+                LIMIT :top_k
+            '''), params).mappings().all()
+            for rank, row in enumerate(rows, 1):
+                # A run pins both the version table and version identifier. Fail
+                # visibly if environment settings accidentally mix two indexes.
+                if expected_version and (row['metadata'] or {}).get('index_version') != expected_version:
+                    raise RuntimeError('Column index does not match BIRD_DEV_INDEX_VERSION')
+                rid = int(row['id'])
+                item = candidates.setdefault(rid, {'row': dict(row), 'score': 0.0, 'channels': {}})
+                item['score'] += 1.0 / (60 + rank)
+                item['channels'][channel] = {'rank': rank, 'cosine': float(row['similarity'])}
+    ranked = sorted(candidates.values(), key=lambda item: (-item['score'], item['row']['id']))
+    tables: Dict[str, RetrievedRecord] = {}
+    for item in ranked:
+        row = item['row']
+        table_name = row['table_name']
+        if table_name not in tables:
+            if len(tables) >= table_top_k:
+                continue
+            tables[table_name] = RetrievedRecord(
+                id=-int(row['id']), record_type='table', table_name=table_name,
+                column_name=None, value_text=table_name, freq=None,
+                metadata={'source': 'grouped_column_hits', 'source_kind': 'sqlite'},
+                vec_score=item['score'],
+            )
+        metadata = dict(row['metadata'] or {})
+        metadata.update({'retrieval_method': 'name_description_vector_rrf',
+                         'retrieval_channels': item['channels'],
+                         'description_source': row['description_source']})
+        result.columns.append(RetrievedRecord(
+            id=int(row['id']), record_type='column', table_name=table_name,
+            column_name=row['column_name'], value_text=row['description'] or '',
+            freq=None, metadata=metadata, vec_score=item['score'], embed_text=None,
+        ))
+        if len(result.columns) >= column_top_k:
+            break
+    result.tables = list(tables.values())
+    return result
+
+
 def hybrid_retrieve(
     question: str,
     db_id: Optional[str] = None,
@@ -404,8 +481,13 @@ def hybrid_retrieve(
 
     query_embedding = _generate_embedding(question)
     if not query_embedding:
+        if os.getenv('BIRD_DEV_INDEX_LAYOUT') == 'column_dual_v1':
+            raise RuntimeError('retrieval_service_error: embedding service returned no valid vector')
         logger.error("Embedding 生成失败，无法执行向量检索，返回空结果")
         return result
+
+    if os.getenv('BIRD_DEV_INDEX_LAYOUT') == 'column_dual_v1':
+        return _retrieve_dual_columns(engine, query_embedding, result, table_top_k, column_top_k)
 
     # ==================== 阶段 1: 表级召回 ====================
     vec_table = _vector_rank(engine, query_embedding, normalized_db_id, "table", table_top_k)

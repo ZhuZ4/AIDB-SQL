@@ -33,13 +33,94 @@ def load_environment_variables():
 
 
 import os
-from typing import Optional
+from typing import Optional, Callable
 import logging
+import time
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 
 from google.adk.models.lite_llm import LiteLlm
 
 
 logger = logging.getLogger(__name__)
+
+
+class LlmCallBudgetExceeded(RuntimeError):
+    """The question exhausted its fixed model call budget before an API call."""
+
+
+@dataclass
+class ModelUsageTracker:
+    """Count actual model invocations, including failed calls, without prompts/keys."""
+
+    max_calls: int = 40
+    calls: list = field(default_factory=list)
+    on_update: Optional[Callable[[dict], None]] = None
+
+    def checkpoint(self) -> None:
+        if self.on_update is not None:
+            self.on_update(self.snapshot())
+
+    def snapshot(self) -> dict:
+        reported = [item for item in self.calls if item.get("usage") is not None]
+        missing = len(self.calls) - len(reported)
+        def total(name):
+            values = [item["usage"].get(name) for item in reported]
+            return sum(value for value in values if value is not None) if values else None
+        return {
+            "llm_calls": len(self.calls),
+            "prompt_tokens": total("prompt_token_count"),
+            "completion_tokens": total("candidates_token_count"),
+            "total_tokens": total("total_token_count"),
+            "cached_tokens": total("cached_content_token_count"),
+            "reasoning_tokens": total("thoughts_token_count"),
+            "usage_complete": missing == 0,
+            "calls_without_usage": missing,
+            "tokens_estimated": False,
+            "api_cost": None,
+            "api_cost_available": False,
+            "calls": [dict(item) for item in self.calls],
+        }
+
+
+model_usage_tracker: ContextVar[Optional[ModelUsageTracker]] = ContextVar(
+    "model_usage_tracker", default=None
+)
+
+
+class TrackedLiteLlm(LiteLlm):
+    async def generate_content_async(self, llm_request, stream=False):
+        tracker = model_usage_tracker.get()
+        if tracker is None:
+            async for response in super().generate_content_async(llm_request, stream=stream):
+                yield response
+            return
+        if len(tracker.calls) >= tracker.max_calls:
+            raise LlmCallBudgetExceeded(f"Maximum model calls reached ({tracker.max_calls})")
+        started = time.monotonic()
+        record = {"call": len(tracker.calls) + 1, "model": self.model,
+                  "usage": None, "status": "running"}
+        tracker.calls.append(record)
+        # Persist intent before invoking the provider. A process kill in this
+        # narrow interval may overcount by one; it cannot silently undercount.
+        tracker.checkpoint()
+        try:
+            async for response in super().generate_content_async(llm_request, stream=stream):
+                usage = getattr(response, "usage_metadata", None)
+                if usage is not None:
+                    # Stream metadata is cumulative for one invocation, not additive.
+                    record["usage"] = usage.model_dump(exclude_none=True)
+                if getattr(response, "error_code", None):
+                    record["response_error_code"] = str(response.error_code)
+                yield response
+            record["status"] = "completed"
+        except BaseException as exc:
+            record["status"] = "failed"
+            record["exception_type"] = type(exc).__name__
+            raise
+        finally:
+            record["duration_seconds"] = round(time.monotonic() - started, 3)
+            tracker.checkpoint()
 
 
 def create_model(
@@ -93,10 +174,15 @@ def create_model(
         bool(llm_config["api_key"]),
     )
 
-    model = LiteLlm(
+    model = TrackedLiteLlm(
         model=f"openai/{llm_config['model_name']}",
         api_base=llm_config["base_url"],
         api_key=llm_config["api_key"],
+        temperature=float(os.environ.get("LITE_LLM_TEMPERATURE", "0")),
+        # Retry at the experiment scheduler boundary, where attempts are persisted.
+        num_retries=0,
+        max_retries=0,
+        timeout=float(os.environ.get("LITE_LLM_REQUEST_TIMEOUT", "120")),
         extra_body={
             "chat_template_kwargs": {"enable_thinking": False}
         },

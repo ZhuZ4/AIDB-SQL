@@ -1313,6 +1313,7 @@ class AgentService:
         self._session_runtime_cap = int(
             os.getenv("AGENT_SERVICE_SESSION_CACHE_SIZE", "16")
         )
+        self.last_run_diagnostics: dict = {}
 
     def _build_experiment_instruction(self) -> str:
         profile = (self._experiment_profile or "full").lower()
@@ -1484,7 +1485,7 @@ class AgentService:
         session_id: str,
         evidence: str = "",
         print_output: bool = True,
-        max_llm_calls: int = 150,
+        max_llm_calls: int = 40,
         preserve_context: bool = False,
     ) -> dict:
         """
@@ -1510,6 +1511,9 @@ class AgentService:
         """
         # ---- 环境准备 ----
         started_at = time.perf_counter()
+        tool_trace: list[dict] = []
+        execution_error = None
+        self.last_run_diagnostics = {"tool_trace": tool_trace}
         set_database_uri(database_uri, session_id)
         if not preserve_context:
             reset_linked_schema(session_id)
@@ -1545,7 +1549,9 @@ class AgentService:
             max_llm_calls=max_llm_calls,
         )
 
-        prompt = f"{question} {evidence}".strip() if evidence and evidence.strip() else question
+        prompt = question
+        if evidence and evidence.strip():
+            prompt += f"\n\nEvidence:\n{evidence}"
 
         # ---- 流式执行 ----
         sql_attempts: list[str] = []
@@ -1565,6 +1571,12 @@ class AgentService:
                 ),
                 run_config=run_config,
             ):
+                if getattr(event, "error_code", None):
+                    execution_error = {
+                        "type": "ModelResponseError", "code": str(event.error_code),
+                        "message": str(getattr(event, "error_message", "") or event.error_code),
+                    }
+                    self.last_run_diagnostics["execution_error"] = execution_error
                 if not (hasattr(event, "content") and event.content):
                     continue
 
@@ -1591,6 +1603,11 @@ class AgentService:
                     if hasattr(part, "function_call") and part.function_call:
                         fc = part.function_call
                         args = dict(fc.args) if fc.args else {}
+                        tool_trace.append({
+                            "kind": "call", "name": fc.name, "args": args,
+                            "id": getattr(fc, "id", None),
+                            "elapsed_seconds": round(time.perf_counter() - started_at, 3),
+                        })
 
                         if print_output:
                             msg = AdkAgent._format_tool_call(fc.name, args)
@@ -1615,6 +1632,12 @@ class AgentService:
                     elif hasattr(part, "function_response") and part.function_response:
                         fr = part.function_response
                         resp_str = str(fr.response) if fr.response else ""
+                        tool_trace.append({
+                            "kind": "response", "name": fr.name,
+                            "response": dict(fr.response) if fr.response else {},
+                            "id": getattr(fr, "id", None),
+                            "elapsed_seconds": round(time.perf_counter() - started_at, 3),
+                        })
 
                         if print_output:
                             msg = AdkAgent._format_tool_result(fr.name, resp_str)
@@ -1649,6 +1672,12 @@ class AgentService:
                             emitted_text += token_text
 
         except Exception as e:
+            execution_error = {
+                "type": type(e).__name__, "message": str(e),
+                "status_code": getattr(e, "status_code", None),
+                "code": getattr(e, "code", None),
+            }
+            self.last_run_diagnostics["execution_error"] = execution_error
             logger.error(f"AgentService.run_query 异常: {e}", exc_info=True)
             if print_output:
                 _safe_print(f"\n错误: {e}")
@@ -1708,6 +1737,8 @@ class AgentService:
                 event.get("kind") == "self_correct" for event in correction_events
             ),
             "tool_stats": tool_stats,
+            "tool_trace": tool_trace,
+            "execution_error": execution_error,
             "latency_sec": round(time.perf_counter() - started_at, 2),
             "text_output": "".join(text_parts),
         }

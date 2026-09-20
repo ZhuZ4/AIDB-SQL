@@ -22,7 +22,8 @@ from typing import Any, Dict, Optional, Tuple
 
 from dotenv import load_dotenv
 from langchain_community.utilities import SQLDatabase
-from sqlalchemy import inspect as sa_inspect, text as sa_text
+from sqlalchemy import create_engine, event, inspect as sa_inspect, text as sa_text
+from sqlalchemy.engine import make_url
 
 from .tool_call_manager import get_tool_call_manager
 
@@ -294,7 +295,54 @@ def set_database_uri(database_uri: str, session_id: str = None):
         session_id: 可选的会话 ID，用于工具调用管理
     """
     global _db_instance, _session_id
-    _db_instance = SQLDatabase.from_uri(database_uri, sample_rows_in_table_info=_EXAMPLE_LIMIT)
+    old_db = _db_instance
+    url = make_url(database_uri)
+    if url.get_backend_name() == "sqlite":
+        engine = create_engine(database_uri)
+
+        @event.listens_for(engine, "connect")
+        def _read_only_sqlite(connection, _record):
+            connection.execute("PRAGMA query_only = ON")
+            # mode=ro protects the source file; query_only also protects attached
+            # or temporary databases. Forbid ATTACH to keep each question scoped.
+            import sqlite3
+            denied = {getattr(sqlite3, name) for name in (
+                "SQLITE_ATTACH", "SQLITE_DETACH", "SQLITE_INSERT", "SQLITE_UPDATE", "SQLITE_DELETE",
+                "SQLITE_CREATE_INDEX", "SQLITE_CREATE_TABLE", "SQLITE_CREATE_TEMP_INDEX",
+                "SQLITE_CREATE_TEMP_TABLE", "SQLITE_CREATE_TEMP_TRIGGER", "SQLITE_CREATE_TEMP_VIEW",
+                "SQLITE_CREATE_TRIGGER", "SQLITE_CREATE_VIEW", "SQLITE_CREATE_VTABLE",
+                "SQLITE_DROP_INDEX", "SQLITE_DROP_TABLE", "SQLITE_DROP_TEMP_INDEX",
+                "SQLITE_DROP_TEMP_TABLE", "SQLITE_DROP_TEMP_TRIGGER", "SQLITE_DROP_TEMP_VIEW",
+                "SQLITE_DROP_TRIGGER", "SQLITE_DROP_VIEW", "SQLITE_DROP_VTABLE",
+                "SQLITE_ALTER_TABLE", "SQLITE_REINDEX", "SQLITE_ANALYZE",
+            )}
+            metadata_pragmas = {"table_info", "table_xinfo", "index_info", "index_xinfo", "index_list", "foreign_key_list"}
+            def authorize(action, arg1, arg2, _db, _trigger):
+                if action in denied:
+                    return sqlite3.SQLITE_DENY
+                if action == sqlite3.SQLITE_PRAGMA and arg2 is not None and (arg1 or "").lower() not in metadata_pragmas:
+                    return sqlite3.SQLITE_DENY
+                return sqlite3.SQLITE_OK
+            connection.set_authorizer(authorize)
+
+        @event.listens_for(engine, "before_cursor_execute")
+        def _bounded_sqlite(connection, _cursor, _statement, _parameters, _context, _many):
+            seconds = float(os.environ.get("SQL_QUERY_TIMEOUT_SECONDS", "30"))
+            deadline = time.monotonic() + seconds
+            connection.connection.driver_connection.set_progress_handler(
+                lambda: int(time.monotonic() >= deadline), 10000
+            )
+
+        try:
+            new_db = SQLDatabase(engine, sample_rows_in_table_info=_EXAMPLE_LIMIT)
+        except BaseException:
+            engine.dispose()
+            raise
+    else:
+        new_db = SQLDatabase.from_uri(database_uri, sample_rows_in_table_info=_EXAMPLE_LIMIT)
+    _db_instance = new_db
+    if old_db is not None:
+        old_db._engine.dispose()
     _session_id = session_id or "default"
     logger.info(f"数据库已连接: dialect={_db_instance.dialect}, session={_session_id}")
 
@@ -329,6 +377,15 @@ def _infer_current_db_id(db: Optional[SQLDatabase] = None) -> str:
                 db_id = Path(raw_db).stem.strip()
                 if db_id:
                     return db_id
+            if dialect == "postgresql":
+                # BIRD_minidev stores each dataset in its own schema. The
+                # physical database name is shared and cannot identify it.
+                schema = getattr(current_db, "_schema", None)
+                if not schema:
+                    with current_db._engine.connect() as conn:
+                        schema = conn.execute(sa_text("SELECT current_schema()")).scalar()
+                if schema and schema not in ("public", "pg_catalog", "information_schema"):
+                    return str(schema).strip()
         except Exception as exc:
             logger.debug("_infer_current_db_id: dialect/url inspection failed: %s", exc)
 
@@ -361,6 +418,11 @@ def _check_tool_call(tool_name: str, query: Optional[str] = None) -> tuple:
                 f"当前实验 profile=`{profile['name']}` 最多允许执行 "
                 f"{profile['max_sql_db_query_calls']} 次 `sql_db_query`。"
             )
+    correction_limit = os.environ.get("MAX_SQL_QUERY_CALLS")
+    if tool_name == "sql_db_query" and correction_limit:
+        ctx = manager.get_session(session_id)
+        if ctx.tool_call_counts.get("sql_db_query", 0) >= int(correction_limit):
+            return False, f"本题 SQL 执行预算已用尽（最多 {correction_limit} 次），请结束并说明失败原因。"
     return manager.check_before_call(session_id, tool_name, query)
 
 
@@ -1093,6 +1155,44 @@ def sql_db_schema(table_names: str) -> str:
         return f"获取表架构失败: {str(e)[:100]}"
 
 
+_SQL_LEXEME = re.compile(
+    r"--[^\r\n]*|/\*[\s\S]*?\*/|'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|"
+    r"`(?:``|[^`])*`|\[(?:\]\]|[^\]])*\]|[A-Za-z_][A-Za-z0-9_$]*|[^\s]"
+)
+
+
+def _read_only_query_error(query: str) -> str:
+    """Check lexical SQL tokens, preserving keywords inside strings/identifiers.
+
+    This is a conservative statement gate, not a SQL parser. Actual SQLite
+    read-only enforcement is provided by mode=ro, query_only and its authorizer.
+    """
+    tokens = []
+    for match in _SQL_LEXEME.finditer(query):
+        token = match.group()
+        if token.startswith(("--", "/*")):
+            continue
+        tokens.append(token)
+    if not tokens or tokens[0].upper() not in {"SELECT", "WITH"}:
+        return "错误: 只允许 SELECT 或 WITH ... SELECT 查询"
+    if ";" in tokens[:-1]:
+        return "错误: 每次只允许执行单条 SELECT 查询"
+    words = {token.upper() for token in tokens if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_$]*", token)}
+    forbidden = words & {
+        "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE", "CREATE",
+        "ATTACH", "DETACH", "VACUUM", "PRAGMA", "REINDEX", "ANALYZE", "INTO", "COPY",
+        "GRANT", "REVOKE", "EXEC", "EXECUTE", "CALL", "LOAD_EXTENSION", "WRITEFILE",
+    }
+    if forbidden:
+        return f"错误: 不允许执行 {sorted(forbidden)[0]} 操作，只允许 SELECT 查询"
+    for index, token in enumerate(tokens):
+        if token.upper() == "REPLACE" and (index + 1 == len(tokens) or tokens[index + 1] != "("):
+            return "错误: 不允许执行 REPLACE 操作，只允许 SELECT 查询"
+    if "SELECT" not in words:
+        return "错误: WITH 必须用于只读 SELECT 查询"
+    return ""
+
+
 def sql_db_query(query: str) -> str:
     """
     执行 SQL SELECT 查询并返回结果。
@@ -1106,14 +1206,9 @@ def sql_db_query(query: str) -> str:
         return "错误: 数据库未连接，请设置 DATABASE_URI 环境变量"
 
     # 安全检查：只允许 SELECT 查询
-    query_upper = query.strip().upper()
-    forbidden_keywords = ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE", "CREATE"]
-    for keyword in forbidden_keywords:
-        if keyword in query_upper:
-            return f"错误: 不允许执行 {keyword} 操作，只允许 SELECT 查询"
-
-    if not query_upper.startswith("SELECT"):
-        return "错误: 只允许执行 SELECT 查询"
+    safety_error = _read_only_query_error(query)
+    if safety_error:
+        return safety_error
 
     # 检查是否允许调用（包含重复查询检测）
     allowed, reason = _check_tool_call("sql_db_query", query)
@@ -1702,6 +1797,8 @@ def sql_db_value_lookup(phrase: str) -> str:
                 logger.info("experiment profile=%s: hybrid retrieval disabled", profile["name"])
         except Exception as vec_err:
             logger.warning("混合检索失败: %s", vec_err)
+            if os.environ.get("REQUIRE_HYBRID_RETRIEVAL") == "1":
+                raise RuntimeError(f"retrieval_service_error: {vec_err}") from vec_err
 
 
         text_type_names = {"TEXT", "VARCHAR", "CHAR", "NVARCHAR", "NCHAR", "CLOB", "STRING", "NTEXT"}
@@ -1925,6 +2022,8 @@ def sql_db_value_lookup(phrase: str) -> str:
 
     except Exception as e:
         _record_tool_call("sql_db_value_lookup", False)
+        if os.environ.get("REQUIRE_HYBRID_RETRIEVAL") == "1":
+            raise RuntimeError(f"retrieval_service_error: {e}") from e
         logger.error(f"值检索失败: {e}", exc_info=True)
         return f"值检索失败: {str(e)[:100]}"
 
@@ -2627,12 +2726,13 @@ def submit_final_sql(sql: str, reasoning: str = "") -> dict:
         }
 
     _final_sql[session_id] = {
-        "sql": cleaned,
+        # Preserve the exact tool argument for reproducible benchmark scoring.
+        "sql": sql,
         "reasoning": reasoning or "",
         "submitted_at": time.time(),
     }
     _record_tool_call("submit_final_sql", True)
-    return {"status": "success", "final_sql": cleaned}
+    return {"status": "success", "final_sql": sql}
 
 
 def db_search(keyword: str = "") -> str:

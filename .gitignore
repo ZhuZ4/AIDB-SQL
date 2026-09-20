@@ -15,6 +15,7 @@ __pycache__/
 .venv/
 venv/
 env/
+.local-services/
 
 # Editor and operating-system files
 .idea/
