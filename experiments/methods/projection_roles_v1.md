@@ -1,6 +1,6 @@
 # Candidate: explicit projection roles
 
-Status: planned implementation, not yet evaluated. Parent best version: B0,
+Status: implemented with offline checks, not yet evaluated. Parent best version: B0,
 `5a82da5ad0e2ad301f33bb8f5afdbdba46030fa4`. Method branch:
 `dev_20260921_060334`. The independent checkout is
 `F:/data/VSCodeproject/AIDB-SQL-projection-roles`.
@@ -79,3 +79,27 @@ Main risks are omitted requested metrics, lost multi-part outputs, weakened
 support-column retrieval and ambiguous question/Evidence/reference conventions.
 Preserve the official metric and retain contradictory cases as diagnostics. A
 smoke gain or the seven motivating examples alone cannot justify adoption.
+
+## Implementation and execution
+
+The candidate keeps the five baseline skill files byte-for-byte unchanged and
+selects only the alternate data-link directory through an explicit instance
+parameter. The worker records the selected policy and raw skill-file SHA256.
+The snapshot includes both the policy loader and alternate instructions. It
+also includes the supervisor-only recovery repair from `bc9418c`; this prevents
+completed runs from being rescored and does not alter generation. Forty-nine
+offline policy, batch, worker and supervisor checks passed after integration.
+
+Run from the candidate checkout, using the existing main-checkout Python and
+shared local services. Preserve the frozen candidate commit once generation starts.
+The commands below run serially, only after the active B0 repeat has finished;
+inspect smoke artifacts and engineering integrity before the full runs.
+
+```powershell
+& 'F:/data/VSCodeproject/AIDB-SQL/.venv/Scripts/python.exe' -m experiments.supervisor --config experiments/projection_roles.example.json --subset smoke --run-id smoke_C1_projection_roles_20260921_01
+& 'F:/data/VSCodeproject/AIDB-SQL/.venv/Scripts/python.exe' -m experiments.supervisor --config experiments/projection_roles.example.json --run-id C1_projection_roles_20260921_01
+& 'F:/data/VSCodeproject/AIDB-SQL/.venv/Scripts/python.exe' -m experiments.supervisor --config experiments/projection_roles.example.json --run-id C1_projection_roles_20260921_02
+```
+
+Audit and compare from the main checkout, where the generation-only audit,
+research registry and chronological matched-repeat checks are maintained.
