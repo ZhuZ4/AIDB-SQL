@@ -63,3 +63,30 @@ Pre-baseline observation: the full index includes 99 columns without description
 Exact-name `PIC` has cosine similarity 1 and rank 1 in the name lane, but may fall
 outside default fused top-15 because it receives only one RRF contribution. This is
 an observation for later error analysis, not an implemented baseline improvement.
+
+## Completed-run diagnosis and research bookkeeping
+
+After official scoring completes, run diagnosis from the main development checkout:
+
+```powershell
+& .\.venv\Scripts\python.exe -m experiments.diagnose --run-dir .local-services/experiments/runs/B0_20260921_01
+& .\.venv\Scripts\python.exe -m experiments.research_registry status
+```
+
+Diagnosis compiles SQL under read-only EXPLAIN to identify referenced tables/columns;
+it does not execute gold queries, change scores or choose a method. Gold-reference
+gaps are explicitly tentative, because equivalent SQL may use different columns.
+Outputs stay inside the completed run's `diagnostics/` directory and contain no gold
+SQL or literal values. A candidate must meet the registry's matching-model, data,
+budget and two-repetition requirements before the best commit can change. Unknown
+monetary costs remain unknown. Rejected experiments and review/cycle triggers persist.
+
+The active B0 uses a separate frozen checkout at `F:/data/VSCodeproject/AIDB-SQL-B0`
+and commit `5a82da5`. Its local service directory points to this project's ignored
+service directory. Resume that run from the frozen checkout, not a later edited tree:
+
+```powershell
+Push-Location 'F:\data\VSCodeproject\AIDB-SQL-B0'
+& 'F:\data\VSCodeproject\AIDB-SQL\.venv\Scripts\python.exe' -m experiments.supervisor --run-id B0_20260921_01
+Pop-Location
+```
