@@ -1,0 +1,186 @@
+{
+  "artifact_type": "independent_smoke_summary",
+  "created_at": "2026-09-21T18:29:30.702390+00:00",
+  "run_id": "DSF_20260922_B0_smoke_01",
+  "review_result": "passed",
+  "scope": "Existing artifact arithmetic, identities, hashes and usage ledgers only; no SQL/API execution or gold-answer inspection.",
+  "git_commit": "58de3cb344fcc2337ea01a168060065a8dd2cc7c",
+  "model": "deepseek-flash",
+  "provider_endpoint_sha256": "12b8deaccc34b32757dbb1497e029da0c2e7b26ffa86b9c926c08cb4692f4508",
+  "metric": "official_mini_dev_EX_tuple_set_equality",
+  "overall": {
+    "count": 30,
+    "correct": 19,
+    "ex": 0.6333333333333333,
+    "ex_percent": 63.333333333333336,
+    "submitted": 28,
+    "submission_rate": 0.9333333333333333,
+    "executable": 28,
+    "timeout_count": 0,
+    "status_counts": {
+      "scored": 28,
+      "missing_sql": 2
+    },
+    "generation_status_counts": {
+      "succeeded": 28,
+      "failed": 2
+    },
+    "evaluation_seconds": 1.621000000013737
+  },
+  "generation_error_categories": {
+    "none": 28,
+    "semantic": 2
+  },
+  "no_submission_question_ids": [
+    944,
+    95
+  ],
+  "fixed_question_ids": [
+    1515,
+    1521,
+    1371,
+    1390,
+    1209,
+    1235,
+    1241,
+    1028,
+    1078,
+    1135,
+    1136,
+    846,
+    869,
+    872,
+    901,
+    944,
+    719,
+    730,
+    750,
+    758,
+    539,
+    587,
+    356,
+    472,
+    522,
+    263,
+    327,
+    23,
+    46,
+    95
+  ],
+  "usage": {
+    "prompt_tokens": {
+      "complete_total": 5186863,
+      "known_total": 5186863,
+      "reported_calls": 295,
+      "missing_calls": 0,
+      "artifact_aggregate_total": 5186863
+    },
+    "completion_tokens": {
+      "complete_total": 43294,
+      "known_total": 43294,
+      "reported_calls": 295,
+      "missing_calls": 0,
+      "artifact_aggregate_total": 43294
+    },
+    "total_tokens": {
+      "complete_total": 5230157,
+      "known_total": 5230157,
+      "reported_calls": 295,
+      "missing_calls": 0,
+      "artifact_aggregate_total": 5230157
+    },
+    "cached_tokens": {
+      "complete_total": 4719744,
+      "known_total": 4719744,
+      "reported_calls": 295,
+      "missing_calls": 0,
+      "artifact_aggregate_total": 4719744
+    },
+    "reasoning_tokens": {
+      "complete_total": null,
+      "known_total": 0,
+      "reported_calls": 0,
+      "missing_calls": 295,
+      "artifact_aggregate_total": 0
+    },
+    "llm_calls": {
+      "complete_total": 295,
+      "known_total": 295,
+      "reported_questions": 30,
+      "missing_questions": 0
+    },
+    "duration_seconds": {
+      "complete_total": 617.3119999999763,
+      "known_total": 617.3119999999763,
+      "reported_questions": 30,
+      "missing_questions": 0
+    },
+    "uncached_prompt_tokens": {
+      "complete_total": 467119,
+      "known_total": 467119,
+      "reported_calls": 295,
+      "missing_calls": 0
+    },
+    "attempt_count": 30,
+    "usage_unknown_questions": 0,
+    "calls_without_usage": 0,
+    "tokens_estimated": false,
+    "api_cost": null,
+    "api_cost_available": false,
+    "currency": null
+  },
+  "usage_note": "All 295 calls report prompt/completion/total/cache counts. thoughts_token_count is absent on all calls: artifact aggregate reasoning_tokens=0 is not a provider-reported complete zero. Explicit non-thinking configuration is a separate generation contract.",
+  "observed_limits": {
+    "max_question_calls": 13,
+    "max_question_seconds": 27.60999999998603,
+    "max_attempt_count": 1
+  },
+  "official_evaluator": {
+    "commit": "abd11b6db92a1c9f809b32f7564c7c71b34d67f0",
+    "file_hashes": {
+      "evaluation_ex.py": "9cb8d82a2f181341d894484895f9b5e7bfabe66eec60688f77689303d5700a0f",
+      "evaluation_utils.py": "496d3cf4900a29060a39034dd219fa22c96c972aecea268d3e849d718defa265"
+    },
+    "sqlite_version": "3.40.1",
+    "sqlite_dll_sha256": "1845e2dac344a601460ad5fa15c2ca1cd046ba157fbb64a151094b139c8584bc"
+  },
+  "source_hashes": {
+    ".local-services/experiments/runs/DSF_20260922_B0_smoke_01/run_manifest.json": "3caaf119c0bae72ff713fa0de21711c14588e9b15d5defd5b0d4ebdc6c371699",
+    ".local-services/experiments/runs/DSF_20260922_B0_smoke_01/predictions.jsonl": "f4b355432c99f147c3ad53f26f90bd05171a4cacbe256d74a50e642f4fa3a1e5",
+    ".local-services/experiments/runs/DSF_20260922_B0_smoke_01/scores.jsonl": "dd8184aa10c15bfe86c42a2ae8916dc02f453649e3d568905a5340e07399126c",
+    ".local-services/experiments/runs/DSF_20260922_B0_smoke_01/summary.json": "0fbdd3e36c7b98e66e846cf94362d907a7e88573f16b78cd55af6c2c015b2035",
+    ".local-services/experiments/runs/DSF_20260922_B0_smoke_01/scoring_id_map.jsonl": "e1f382fb50ce717a6bf8f28f34b77fe8ceddccd083b1c8b3417d8f9960cb446e",
+    ".local-services/experiments/runs/DSF_20260922_B0_smoke_01/predictions_official.json": "3233ef9fe82697a67b658ca932f88eb5dbc8dc5c11c3d72b894bb54a8d2f5e4e",
+    ".local-services/experiments/dataset/dataset_manifest.json": "dcb779111c283a9b2f6078ea7ca465408ad8653a3c797b763fbf290a5a20619f",
+    ".local-services/experiments/dataset/generation/smoke_questions.jsonl": "78a9445c5f7ef9140fff58f34588c21346a65fbf11115f6526edd12e381376c0",
+    ".local-services/experiments/runs/DSF_20260922_B0_smoke_01/engineering_audit.json": "999523617dcd03c9e4f90eaf21070850f87aa5df7718cc16f972e71f8dcef74b"
+  },
+  "trace_binding": {
+    "artifact_count": 90,
+    "sorted_relative_path_to_sha256_json_sha256": "f38394314ae1695dd24cea8b3bcbc8e9494761b4952712708773d95146bd331c"
+  },
+  "checks": {
+    "fixed_30_ids_order_and_databases": true,
+    "generation_source_hash_binding": true,
+    "score_prediction_source_hash_binding": true,
+    "run_fingerprint": true,
+    "official_evaluator_metric_commit_source": true,
+    "sqlite_runtime_and_dll_hash": true,
+    "raw_final_sql_preserved_in_official_input": true,
+    "score_status_and_sql_index_binding": true,
+    "same_official_provider_run_only": true,
+    "official_denominator_and_overall_arithmetic": true,
+    "group_arithmetic": true,
+    "per_call_result_checkpoint_prediction_score_usage_binding": true,
+    "complete_core_token_totals_equal_exports": true,
+    "generation_budgets": true,
+    "root_engineering_audit_passed": true,
+    "source_files_unchanged_during_review": true
+  },
+  "usage_binding_issues": [],
+  "limitations": [
+    "Fixed 30 development-question smoke only; no completed 300-question baseline or repeated-run claim.",
+    "Historical Aliyun provider results are excluded; no cross-provider improvement claim.",
+    "No billed currency amount is available in these result artifacts."
+  ]
+}

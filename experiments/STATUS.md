@@ -3,13 +3,26 @@
 Latest update, 2026-09-22: the user supplied a DeepSeek official API key and changed
 the endpoint. Authenticated model/balance checks and a two-request tool round trip
 passed. The official V4.1-Flash API name is `deepseek-flash`; `.env` now uses that
-name. Provider adaptation is being frozen for the independent
-`deepseek_official_20260922` series, with the same fixed 300/30 questions and budgets.
+name. Provider adaptation is frozen at `58de3cb344fcc2337ea01a168060065a8dd2cc7c`
+for the independent `deepseek_official_20260922` series, with the same fixed 300/30
+questions and budgets. The fixed smoke `DSF_20260922_B0_smoke_01` completed with
+official EX **19/30 (63.33%)**, 28 executable submissions, two retained failures,
+and zero timeouts. Its complete engineering audit passed with zero errors or
+unverified evidence; prompt/completion/total/cache usage is complete for all 295
+model calls. Reasoning-token counts were not reported and monetary costs are unknown.
+The failures exhausted the existing SQL correction budget and did not submit SQL;
+neither showed an API compatibility failure. This smoke is not a 300-question baseline.
+
+The first full baseline `DSF_20260922_B0_01` started at **2026-09-22 02:25:53
+Asia/Shanghai**, using the clean frozen `AIDB-SQL-DSF-B0` worktree. The second
+predeclared repeat remains `DSF_20260922_B0_02`, using the identical frozen version.
+Live progress and process identity are persisted under `.local-services/experiments/`.
 See `DEEPSEEK_OFFICIAL_20260922.md` and `deepseek_official_cost_notes.md`.
 
 The results below describe the preserved earlier Token Plan series. Its stopped
 281-question repeat is not resumed with the new provider and is not combined with
-the new series. The historical best remains 180/300; no new-provider EX is available yet.
+the new series. The historical best remains 180/300; no new-provider full-run EX is
+available yet. See `DSF_20260922_B0_smoke_01_summary.json` for the new smoke summary.
 
 Started 2026-09-21 (Asia/Shanghai) from `codex/dev_legion`, base commit `bd8502f`.
 Authorized design and permissions were recovered from task
@@ -31,8 +44,8 @@ were retained; subsequent infrastructure work builds on them.
 | P4/P5 | B0 remains current best; no improvement claimed. First candidate, explicit output-role assignment in data-link, is frozen and pushed as `f60c286` on `dev_20260921_060334` after trace review and reading DIN-SQL/RESDSQL methods, ablations and official implementations. It passed 49 offline checks and is registered pending smoke/two matched full runs. See `methods/projection_roles_v1.md` |
 
 Full local evidence lives in `.local-services/experiments/` and
-`.local-services/column-index/`. Generation stopped at the user-authorized resource
-boundary on **2026-09-21 08:13:55 Asia/Shanghai**; no model requests are being sent.
+`.local-services/column-index/`. That historical series stopped at the user-authorized
+resource boundary on **2026-09-21 08:13:55 Asia/Shanghai**; it sends no further requests.
 The provider reported a weekly quota reset at **2026-09-28 02:33 Asia/Shanghai**.
 The research plan is unfinished: matched repeats and candidate evaluation remain.
 See `RESOURCE_STOP_20260921.md` for the saved deliverables and resumption sequence.

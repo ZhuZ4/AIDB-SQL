@@ -8,8 +8,9 @@ remain historical artifacts; changing provider/model cannot resume that frozen r
 The fixed manifest selects 300 development questions and a deterministic 30-question
 smoke subset. The remaining 200 source questions are excluded from method selection.
 Business data stays in read-only SQLite. PostgreSQL contains versioned metadata and
-independent column-name/description vectors. Generation uses `deepseek-v4.1-flash`
-from the local `.env`; credentials and full traces are never committed.
+independent column-name/description vectors. The active official series uses
+`deepseek-flash`; the historical Token Plan series used `deepseek-v4.1-flash`.
+Both read the local `.env`; credentials and full traces are never committed.
 
 From the project root in PowerShell:
 

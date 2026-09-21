@@ -6,6 +6,8 @@
 
 配置为 `experiments/deepseek_official.example.json`。它与原 `experiment.example.json` 仅有两项差异：`experiment_id=B0_deepseek_official_20260922`、`model=deepseek-flash`。未增加 `series_id` 或其他配置字段；密钥由现有 `.env` 提供，不写入说明、配置或工件。
 
+执行更新：适配已冻结并推送为 `58de3cb344fcc2337ea01a168060065a8dd2cc7c`，独立工作树为 `F:/data/VSCodeproject/AIDB-SQL-DSF-B0`。新 registry 已初始化；固定 smoke 完成 30 题，官方 EX 19/30，28 题提交可执行 SQL、2 题未提交，工程审计通过。第一轮完整基线于 2026-09-22 02:25:53（Asia/Shanghai）启动。后续即时状态见 `STATUS.md` 和本地 `goal_checkpoint.json`；下列命令用于复现流程，不能在已有同名运行时重复初始化。
+
 ## 历史与新系列隔离
 
 - 旧 `.local-services/experiments/research_registry.json`、B01 正式结果、B02 在 281/300 停止的工件，以及旧 `C1_projection_roles` 的提交、假设和登记记录全部保留。
@@ -35,7 +37,7 @@
 
 ## 已有 CLI 的执行路径
 
-以下是后续执行模板，本说明的创建没有初始化 registry、调用 API 或启动批次。先完成新接口适配与 smoke 前置验证，再由执行者在相应冻结工作树运行。冻结工作树需要使用既有共享 `.local-services`；Python 使用主项目的虚拟环境。
+以下是执行模板。新接口适配与 smoke 前置验证已完成；命令在相应冻结工作树运行。冻结工作树使用既有共享 `.local-services`；Python 使用主项目的虚拟环境。当前 registry 已存在，无需再次执行 `init`。
 
 ```powershell
 $pythonExe = 'F:\data\VSCodeproject\AIDB-SQL\.venv\Scripts\python.exe'
