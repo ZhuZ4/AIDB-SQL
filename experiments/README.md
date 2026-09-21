@@ -59,9 +59,10 @@ prevents idle system sleep while alive without changing persistent power setting
 
 Before retaining a candidate, compare the same 300 questions, report gains/regressions,
 cost and paired uncertainty, and complete the two predeclared matched runs per version
-(including the first full run). Their chronological pairing cannot be reordered. Monetary
-cost ratios remain unverified until matching provider Credit rates or billing records
-are available; do not substitute an unrelated USD price. The API's absolute total
+(including the first full run). Their chronological pairing cannot be reordered. Actual
+monetary cost ratios remain unverified without matching provider billing records.
+Public-price estimates must be labeled separately and use the active provider's rates;
+see `deepseek_official_cost_notes.md` for the official series. The API's absolute total
 spending/call limits remain unset as authorized. The 40-call/900-second question limits
 remain fixed, and comparisons report calls, cached/uncached tokens and latency. Cumulative
 counters remain authoritative over a retry's last-attempt usage; incomplete usage stays
@@ -100,6 +101,35 @@ Outputs stay inside the completed run's `diagnostics/` directory and contain no 
 SQL or literal values. A candidate must meet the registry's matching-model, data,
 budget and two-repetition requirements before the best commit can change. Unknown
 monetary costs remain unknown. Rejected experiments and review/cycle triggers persist.
+
+## Exporting a completed question–SQL result set
+
+After a full run has 300 terminal records, official scores and a passing engineering
+audit, export a compact deliverable from the main development checkout:
+
+```powershell
+& .\.venv\Scripts\python.exe -m experiments.export_results --run-dir .local-services/experiments/runs/DSF_20260922_B0_01 --output-dir .local-services/experiments/deliverables/DSF_20260922_B0_01
+```
+
+The exporter writes `question_sql_scores.jsonl` and a hash-bound `manifest.json` into
+a new directory. It preserves the exact `submitted_final_sql`, question/evidence,
+official EX and failure status from one frozen run. Empty final SQL stays empty;
+no heuristic or answer-text SQL is substituted, and no gold SQL is included.
+The fixed 300 IDs and order, question identities, scoring hashes, source audit and
+submission provenance must agree. Partial runs, smoke runs, failed audits and an
+existing output directory are rejected. Source artifacts are read without SQL/API
+execution and remain unchanged. An export does not select a best run or replace
+the required chronological, matched-repeat comparison.
+
+The audit must identify the current `audit_run.py` code. If the validator changed
+since an earlier audit, create a new audit report under a new filename and supply
+that report with `--audit`; keep the previous report and scored results intact.
+
+Use `--dataset-dir` for a non-default dataset directory or `--audit` to select an
+explicit passing audit file. Keep outputs in the ignored local deliverables tree;
+only lightweight summaries belong in Git.
+
+## Historical Token Plan series
 
 The first complete B0 scored 180/300 (60.00% official EX). Its predictions, scores,
 engineering audit and development-only diagnosis are retained locally. The second
