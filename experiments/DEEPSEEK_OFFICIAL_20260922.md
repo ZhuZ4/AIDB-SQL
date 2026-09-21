@@ -6,7 +6,7 @@
 
 配置为 `experiments/deepseek_official.example.json`。它与原 `experiment.example.json` 仅有两项差异：`experiment_id=B0_deepseek_official_20260922`、`model=deepseek-flash`。未增加 `series_id` 或其他配置字段；密钥由现有 `.env` 提供，不写入说明、配置或工件。
 
-执行更新：适配已冻结并推送为 `58de3cb344fcc2337ea01a168060065a8dd2cc7c`，独立工作树为 `F:/data/VSCodeproject/AIDB-SQL-DSF-B0`。新 registry 已初始化；固定 smoke 完成 30 题，官方 EX 19/30，28 题提交可执行 SQL、2 题未提交，工程审计通过。第一轮完整基线于 2026-09-22 02:25:53（Asia/Shanghai）启动。后续即时状态见 `STATUS.md` 和本地 `goal_checkpoint.json`；下列命令用于复现流程，不能在已有同名运行时重复初始化。
+执行更新：适配已冻结并推送为 `58de3cb344fcc2337ea01a168060065a8dd2cc7c`，独立工作树为 `F:/data/VSCodeproject/AIDB-SQL-DSF-B0`。新 registry 已初始化；固定 smoke 完成 30 题，官方 EX 19/30，28 题提交可执行 SQL、2 题未提交，工程审计通过。第一轮完整基线已完成 300 题，官方 EX **184/300（61.33%）**，292 条可执行提交、8 条未提交，评分无超时；完整工程审计通过，300 条 question–SQL–score 及哈希清单已导出至 `.local-services/experiments/deliverables/DSF_20260922_B0_01/`。q1252 一次传输失败未返回 usage，完整 token 总量保留未知，已知小计独立记录。第二轮基线于 **2026-09-22 04:12:16（Asia/Shanghai）** 从同一冻结代码和配置启动。后续即时状态见 `STATUS.md` 和本地 `goal_checkpoint.json`；下列命令用于复现流程，不能在已有同名运行时重复初始化。
 
 ## 历史与新系列隔离
 
@@ -21,8 +21,8 @@
 | 阶段 | Run ID | 数据范围 |
 | --- | --- | --- |
 | 工程 smoke | `DSF_20260922_B0_smoke_01` | 已固定的 30 题 smoke 集 |
-| 基线第 1 轮 | `DSF_20260922_B0_01` | 原固定 300 题及相同顺序 |
-| 基线第 2 轮 | `DSF_20260922_B0_02` | 同一 300 题 |
+| 基线第 1 轮 | `DSF_20260922_B0_01` | 固定 300 题已完成、评分、审计和导出 |
+| 基线第 2 轮 | `DSF_20260922_B0_02` | 同一 300 题，已启动 |
 | 候选工程 smoke | `DSF_20260922_C1_smoke_01` | 已固定的 30 题 smoke 集 |
 | C1 第 1 轮 | `DSF_20260922_C1_01` | 同一 300 题 |
 | C1 第 2 轮 | `DSF_20260922_C1_02` | 同一 300 题 |

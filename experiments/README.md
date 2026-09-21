@@ -5,6 +5,12 @@ For the user-authorized 2026-09-22 switch to DeepSeek's official endpoint, use
 `DEEPSEEK_OFFICIAL_20260922.md`. The older Token Plan configuration and stopped run
 remain historical artifacts; changing provider/model cannot resume that frozen run.
 
+The first official-provider full baseline `DSF_20260922_B0_01` scored 184/300
+(61.33% EX), passed the full engineering audit, and produced its immutable 300-row
+export under `.local-services/experiments/deliverables/DSF_20260922_B0_01/`.
+The second predeclared repeat is running from the same frozen commit `58de3cb`.
+See `STATUS.md` for the current series and the preserved historical results.
+
 The fixed manifest selects 300 development questions and a deterministic 30-question
 smoke subset. The remaining 200 source questions are excluded from method selection.
 Business data stays in read-only SQLite. PostgreSQL contains versioned metadata and

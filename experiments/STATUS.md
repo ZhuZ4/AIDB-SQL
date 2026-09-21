@@ -13,16 +13,30 @@ model calls. Reasoning-token counts were not reported and monetary costs are unk
 The failures exhausted the existing SQL correction budget and did not submit SQL;
 neither showed an API compatibility failure. This smoke is not a 300-question baseline.
 
-The first full baseline `DSF_20260922_B0_01` started at **2026-09-22 02:25:53
-Asia/Shanghai**, using the clean frozen `AIDB-SQL-DSF-B0` worktree. The second
-predeclared repeat remains `DSF_20260922_B0_02`, using the identical frozen version.
+The first full baseline `DSF_20260922_B0_01` completed all 300 questions with
+official EX **184/300 (61.33%)**, 292 executable submissions, eight missing
+submissions, and zero evaluation timeouts. Its complete engineering audit passed:
+300 terminal records, 301 attempt sessions, zero engineering errors, and zero
+unverified evidence. The immutable 300-row question/SQL/score export and its source
+hash manifest are in `.local-services/experiments/deliverables/DSF_20260922_B0_01/`.
+One transient failed request in q1252 returned no usage; complete token totals
+remain unknown, with reported subtotals retained. Reasoning usage and actual
+monetary cost remain unknown.
+
+The second predeclared full baseline `DSF_20260922_B0_02` started at **2026-09-22
+04:12:16 Asia/Shanghai**, after the first run's evaluation, audit, and export.
+It uses the identical clean frozen `AIDB-SQL-DSF-B0` worktree, commit `58de3cb`,
+configuration, provider/model, data, index, and budgets. Both full baselines must
+finish and pass audit before candidate selection/registration in the new series.
 Live progress and process identity are persisted under `.local-services/experiments/`.
-See `DEEPSEEK_OFFICIAL_20260922.md` and `deepseek_official_cost_notes.md`.
+See `DSF_20260922_B0_01_summary.json`, `DEEPSEEK_OFFICIAL_20260922.md`, and
+`deepseek_official_cost_notes.md`. This first new-provider baseline establishes a
+reference point; it does not demonstrate a method improvement.
 
 The results below describe the preserved earlier Token Plan series. Its stopped
 281-question repeat is not resumed with the new provider and is not combined with
-the new series. The historical best remains 180/300; no new-provider full-run EX is
-available yet. See `DSF_20260922_B0_smoke_01_summary.json` for the new smoke summary.
+the new series. The historical best remains 180/300 within that older series.
+See `DSF_20260922_B0_smoke_01_summary.json` for the new smoke summary.
 
 Started 2026-09-21 (Asia/Shanghai) from `codex/dev_legion`, base commit `bd8502f`.
 Authorized design and permissions were recovered from task

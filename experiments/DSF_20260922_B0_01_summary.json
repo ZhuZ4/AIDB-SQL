@@ -1,0 +1,788 @@
+{
+  "artifact_type": "independent_complete_run_summary",
+  "created_at": "2026-09-21T20:16:07.201782+00:00",
+  "review_result": "verified_complete_official_run_and_engineering_audit",
+  "run_id": "DSF_20260922_B0_01",
+  "git_commit": "58de3cb344fcc2337ea01a168060065a8dd2cc7c",
+  "model": "deepseek-flash",
+  "provider_endpoint_sha256": "12b8deaccc34b32757dbb1497e029da0c2e7b26ffa86b9c926c08cb4692f4508",
+  "index_version": "column_dual_v1_624e825a0765bdb2e629",
+  "metric": "official_mini_dev_EX_tuple_set_equality",
+  "official_evaluator": {
+    "commit": "abd11b6db92a1c9f809b32f7564c7c71b34d67f0",
+    "file_hashes": {
+      "evaluation_ex.py": "9cb8d82a2f181341d894484895f9b5e7bfabe66eec60688f77689303d5700a0f",
+      "evaluation_utils.py": "496d3cf4900a29060a39034dd219fa22c96c972aecea268d3e849d718defa265"
+    },
+    "metric": "official_mini_dev_EX_tuple_set_equality",
+    "sqlite_runtime": {
+      "version": "3.40.1",
+      "dll_path": "F:\\data\\VSCodeproject\\AIDB-SQL\\.local-services\\evaluator-runtime\\sqlite-3.40.1\\sqlite3.dll",
+      "dll_sha256": "1845e2dac344a601460ad5fa15c2ca1cd046ba157fbb64a151094b139c8584bc",
+      "download_url": "https://www.sqlite.org/2022/sqlite-dll-win64-x64-3400100.zip",
+      "archive_sha256": "3f9d170be88166ed87a5faa4b795a6a9ca1896aec3b7f597e53a8bb2c7d8fb8d"
+    }
+  },
+  "overall": {
+    "count": 300,
+    "correct": 184,
+    "ex": 0.6133333333333333,
+    "ex_percent": 61.333333333333336,
+    "submitted": 292,
+    "submission_rate": 0.9733333333333334,
+    "executable": 292,
+    "timeout_count": 0,
+    "status_counts": {
+      "scored": 292,
+      "missing_sql": 8
+    },
+    "generation_status_counts": {
+      "succeeded": 292,
+      "failed": 8
+    },
+    "evaluation_seconds": 20.944000000308733
+  },
+  "by_db_id": {
+    "california_schools": {
+      "count": 18,
+      "correct": 8,
+      "ex": 0.4444444444444444,
+      "ex_percent": 44.44444444444444,
+      "submitted": 17,
+      "submission_rate": 0.9444444444444444,
+      "executable": 17,
+      "timeout_count": 0,
+      "status_counts": {
+        "scored": 17,
+        "missing_sql": 1
+      },
+      "generation_status_counts": {
+        "succeeded": 17,
+        "failed": 1
+      },
+      "evaluation_seconds": 0.37100000004284084
+    },
+    "card_games": {
+      "count": 32,
+      "correct": 24,
+      "ex": 0.75,
+      "ex_percent": 75.0,
+      "submitted": 31,
+      "submission_rate": 0.96875,
+      "executable": 31,
+      "timeout_count": 0,
+      "status_counts": {
+        "scored": 31,
+        "missing_sql": 1
+      },
+      "generation_status_counts": {
+        "succeeded": 31,
+        "failed": 1
+      },
+      "evaluation_seconds": 6.154000000067754
+    },
+    "codebase_community": {
+      "count": 30,
+      "correct": 21,
+      "ex": 0.7,
+      "ex_percent": 70.0,
+      "submitted": 30,
+      "submission_rate": 1.0,
+      "executable": 30,
+      "timeout_count": 0,
+      "status_counts": {
+        "scored": 30
+      },
+      "generation_status_counts": {
+        "succeeded": 30
+      },
+      "evaluation_seconds": 5.89000000001397
+    },
+    "debit_card_specializing": {
+      "count": 17,
+      "correct": 9,
+      "ex": 0.5294117647058824,
+      "ex_percent": 52.94117647058823,
+      "submitted": 17,
+      "submission_rate": 1.0,
+      "executable": 17,
+      "timeout_count": 0,
+      "status_counts": {
+        "scored": 17
+      },
+      "generation_status_counts": {
+        "succeeded": 17
+      },
+      "evaluation_seconds": 1.577000000019325
+    },
+    "european_football_2": {
+      "count": 30,
+      "correct": 20,
+      "ex": 0.6666666666666666,
+      "ex_percent": 66.66666666666667,
+      "submitted": 30,
+      "submission_rate": 1.0,
+      "executable": 30,
+      "timeout_count": 0,
+      "status_counts": {
+        "scored": 30
+      },
+      "generation_status_counts": {
+        "succeeded": 30
+      },
+      "evaluation_seconds": 3.7639999999373686
+    },
+    "financial": {
+      "count": 19,
+      "correct": 5,
+      "ex": 0.2631578947368421,
+      "ex_percent": 26.31578947368421,
+      "submitted": 17,
+      "submission_rate": 0.8947368421052632,
+      "executable": 17,
+      "timeout_count": 0,
+      "status_counts": {
+        "scored": 17,
+        "missing_sql": 2
+      },
+      "generation_status_counts": {
+        "succeeded": 17,
+        "failed": 2
+      },
+      "evaluation_seconds": 1.4070000000065193
+    },
+    "formula_1": {
+      "count": 40,
+      "correct": 18,
+      "ex": 0.45,
+      "ex_percent": 45.0,
+      "submitted": 38,
+      "submission_rate": 0.95,
+      "executable": 38,
+      "timeout_count": 0,
+      "status_counts": {
+        "scored": 38,
+        "missing_sql": 2
+      },
+      "generation_status_counts": {
+        "succeeded": 38,
+        "failed": 2
+      },
+      "evaluation_seconds": 0.8460000000195578
+    },
+    "student_club": {
+      "count": 29,
+      "correct": 23,
+      "ex": 0.7931034482758621,
+      "ex_percent": 79.3103448275862,
+      "submitted": 29,
+      "submission_rate": 1.0,
+      "executable": 29,
+      "timeout_count": 0,
+      "status_counts": {
+        "scored": 29
+      },
+      "generation_status_counts": {
+        "succeeded": 29
+      },
+      "evaluation_seconds": 0.1259999999892898
+    },
+    "superhero": {
+      "count": 31,
+      "correct": 28,
+      "ex": 0.9032258064516129,
+      "ex_percent": 90.3225806451613,
+      "submitted": 31,
+      "submission_rate": 1.0,
+      "executable": 31,
+      "timeout_count": 0,
+      "status_counts": {
+        "scored": 31
+      },
+      "generation_status_counts": {
+        "succeeded": 31
+      },
+      "evaluation_seconds": 0.2670000000507571
+    },
+    "thrombosis_prediction": {
+      "count": 30,
+      "correct": 15,
+      "ex": 0.5,
+      "ex_percent": 50.0,
+      "submitted": 28,
+      "submission_rate": 0.9333333333333333,
+      "executable": 28,
+      "timeout_count": 0,
+      "status_counts": {
+        "scored": 28,
+        "missing_sql": 2
+      },
+      "generation_status_counts": {
+        "succeeded": 28,
+        "failed": 2
+      },
+      "evaluation_seconds": 0.17100000006030314
+    },
+    "toxicology": {
+      "count": 24,
+      "correct": 13,
+      "ex": 0.5416666666666666,
+      "ex_percent": 54.166666666666664,
+      "submitted": 24,
+      "submission_rate": 1.0,
+      "executable": 24,
+      "timeout_count": 0,
+      "status_counts": {
+        "scored": 24
+      },
+      "generation_status_counts": {
+        "succeeded": 24
+      },
+      "evaluation_seconds": 0.3710000001010485
+    }
+  },
+  "by_difficulty": {
+    "challenging": {
+      "count": 61,
+      "correct": 31,
+      "ex": 0.5081967213114754,
+      "ex_percent": 50.81967213114754,
+      "submitted": 60,
+      "submission_rate": 0.9836065573770492,
+      "executable": 60,
+      "timeout_count": 0,
+      "status_counts": {
+        "scored": 60,
+        "missing_sql": 1
+      },
+      "generation_status_counts": {
+        "succeeded": 60,
+        "failed": 1
+      },
+      "evaluation_seconds": 5.010000000067521
+    },
+    "moderate": {
+      "count": 150,
+      "correct": 88,
+      "ex": 0.5866666666666667,
+      "ex_percent": 58.666666666666664,
+      "submitted": 143,
+      "submission_rate": 0.9533333333333334,
+      "executable": 143,
+      "timeout_count": 0,
+      "status_counts": {
+        "scored": 143,
+        "missing_sql": 7
+      },
+      "generation_status_counts": {
+        "succeeded": 143,
+        "failed": 7
+      },
+      "evaluation_seconds": 10.778000000136672
+    },
+    "simple": {
+      "count": 89,
+      "correct": 65,
+      "ex": 0.7303370786516854,
+      "ex_percent": 73.03370786516854,
+      "submitted": 89,
+      "submission_rate": 1.0,
+      "executable": 89,
+      "timeout_count": 0,
+      "status_counts": {
+        "scored": 89
+      },
+      "generation_status_counts": {
+        "succeeded": 89
+      },
+      "evaluation_seconds": 5.156000000104541
+    }
+  },
+  "generation_error_categories": {
+    "semantic": 8
+  },
+  "no_submission_question_ids": [
+    1175,
+    1179,
+    866,
+    944,
+    529,
+    26,
+    95,
+    189
+  ],
+  "fixed_question_ids": [
+    1471,
+    1472,
+    1473,
+    1479,
+    1480,
+    1481,
+    1482,
+    1483,
+    1498,
+    1501,
+    1507,
+    1514,
+    1515,
+    1521,
+    1525,
+    1528,
+    1533,
+    1312,
+    1322,
+    1323,
+    1331,
+    1338,
+    1340,
+    1344,
+    1346,
+    1350,
+    1351,
+    1357,
+    1361,
+    1371,
+    1380,
+    1387,
+    1389,
+    1390,
+    1394,
+    1399,
+    1401,
+    1403,
+    1404,
+    1410,
+    1422,
+    1426,
+    1432,
+    1457,
+    1460,
+    1464,
+    1149,
+    1152,
+    1153,
+    1155,
+    1156,
+    1168,
+    1169,
+    1171,
+    1175,
+    1179,
+    1185,
+    1189,
+    1195,
+    1198,
+    1201,
+    1205,
+    1209,
+    1231,
+    1235,
+    1238,
+    1241,
+    1242,
+    1251,
+    1252,
+    1254,
+    1255,
+    1256,
+    1267,
+    1270,
+    1302,
+    1025,
+    1028,
+    1029,
+    1030,
+    1037,
+    1039,
+    1044,
+    1058,
+    1068,
+    1076,
+    1078,
+    1088,
+    1092,
+    1094,
+    1096,
+    1098,
+    1102,
+    1103,
+    1105,
+    1113,
+    1115,
+    1130,
+    1133,
+    1135,
+    1136,
+    1139,
+    1144,
+    1145,
+    1146,
+    1147,
+    846,
+    847,
+    859,
+    862,
+    865,
+    866,
+    869,
+    872,
+    875,
+    877,
+    879,
+    880,
+    881,
+    892,
+    894,
+    896,
+    898,
+    901,
+    906,
+    915,
+    928,
+    930,
+    931,
+    937,
+    940,
+    944,
+    948,
+    951,
+    954,
+    955,
+    959,
+    960,
+    964,
+    967,
+    977,
+    978,
+    981,
+    988,
+    717,
+    1003,
+    1011,
+    719,
+    724,
+    730,
+    732,
+    736,
+    737,
+    740,
+    744,
+    745,
+    750,
+    751,
+    753,
+    758,
+    761,
+    766,
+    769,
+    773,
+    779,
+    781,
+    782,
+    785,
+    786,
+    788,
+    791,
+    798,
+    800,
+    801,
+    819,
+    822,
+    825,
+    531,
+    539,
+    544,
+    547,
+    557,
+    563,
+    565,
+    567,
+    568,
+    571,
+    572,
+    573,
+    581,
+    586,
+    587,
+    592,
+    629,
+    633,
+    634,
+    665,
+    669,
+    671,
+    678,
+    682,
+    685,
+    701,
+    705,
+    707,
+    710,
+    716,
+    340,
+    344,
+    345,
+    352,
+    356,
+    358,
+    366,
+    368,
+    371,
+    377,
+    383,
+    405,
+    409,
+    422,
+    462,
+    465,
+    466,
+    468,
+    472,
+    473,
+    474,
+    477,
+    479,
+    480,
+    483,
+    484,
+    486,
+    487,
+    522,
+    528,
+    529,
+    530,
+    195,
+    198,
+    201,
+    207,
+    213,
+    219,
+    220,
+    230,
+    231,
+    232,
+    236,
+    239,
+    243,
+    244,
+    245,
+    247,
+    248,
+    253,
+    255,
+    263,
+    268,
+    273,
+    282,
+    327,
+    5,
+    12,
+    23,
+    25,
+    26,
+    27,
+    39,
+    40,
+    41,
+    45,
+    46,
+    47,
+    62,
+    72,
+    79,
+    82,
+    83,
+    87,
+    93,
+    95,
+    98,
+    99,
+    112,
+    115,
+    118,
+    125,
+    136,
+    129,
+    145,
+    159,
+    169,
+    173,
+    186,
+    189,
+    194,
+    119,
+    120
+  ],
+  "usage": {
+    "attempt_count": 301,
+    "llm_calls": {
+      "known_total": 2898,
+      "complete_total": 2898
+    },
+    "calls_with_usage": 2897,
+    "calls_without_usage": 1,
+    "usage_unknown_questions": [
+      1252
+    ],
+    "unreported_requests": [
+      {
+        "question_id": 1252,
+        "attempt": 1,
+        "call": 6,
+        "status": "failed",
+        "exception_type": "MidStreamFallbackError"
+      }
+    ],
+    "duration_seconds": {
+      "known_total": 6082.050999999978,
+      "complete_total": 6082.050999999978
+    },
+    "api_cost": null,
+    "api_cost_available": false,
+    "currency": null,
+    "tokens_estimated": false,
+    "prompt_tokens": {
+      "known_total": 51553342,
+      "complete_total": null,
+      "questions_with_unknown_total": 1
+    },
+    "completion_tokens": {
+      "known_total": 421731,
+      "complete_total": null,
+      "questions_with_unknown_total": 1
+    },
+    "total_tokens": {
+      "known_total": 51975073,
+      "complete_total": null,
+      "questions_with_unknown_total": 1
+    },
+    "cached_tokens": {
+      "known_total": 46838267,
+      "complete_total": null,
+      "questions_with_unknown_total": 1
+    },
+    "uncached_prompt_tokens": {
+      "known_total": 4715075,
+      "complete_total": null
+    },
+    "reasoning_tokens": {
+      "known_reported_total": null,
+      "complete_total": null,
+      "calls_with_reported_reasoning": 0,
+      "calls_without_reported_reasoning": 2898,
+      "exported_tracker_default_known_total": 0,
+      "interpretation": "No per-call ADK usage record contains a reasoning/thought token field. Tracker default zeros are not provider-reported zero reasoning consumption."
+    }
+  },
+  "usage_note": "Totals combine every attempt, including the failed q1252 attempt. Known token subtotals do not constitute complete totals when one API request has no usage. Reasoning fields and monetary cost are unavailable; no prices or zero charges are inferred.",
+  "engineering_audit": {
+    "passed": true,
+    "path": "F:\\data\\VSCodeproject\\AIDB-SQL\\.local-services\\experiments\\runs\\DSF_20260922_B0_01\\engineering_audit.json",
+    "sha256": "305fec1755a45bf2e7dd9baafb52a0eb95b475ed9c2175859f82aaef3eec828c",
+    "engineering_errors": 0,
+    "unverified_evidence": 0,
+    "unique_sessions": 301,
+    "observation_counts": {
+      "agent_submitted_earlier_accepted_query": 66,
+      "sql_calls_denied_or_not_physically_executed": 15,
+      "provider_usage_partly_unreported": 1,
+      "agent_pipeline_skill_order_or_completion_deviation": 1,
+      "agent_submission_without_prior_matching_query_call": 3
+    }
+  },
+  "observed_limits": {
+    "max_cumulative_llm_calls_per_question": 16,
+    "max_cumulative_worker_seconds_per_question": 48.24900000001071
+  },
+  "checks": {
+    "fixed_300_id_sequence": true,
+    "generation_has_only_question_evidence_identity": true,
+    "run_model_endpoint_commit": true,
+    "manifest_fingerprint": true,
+    "dataset_question_selection_hashes": true,
+    "scores_summary_input_hashes": true,
+    "complete_official_evaluation": true,
+    "official_evaluator_runtime_identity": true,
+    "overall_and_all_group_arithmetic": true,
+    "score_rows_and_prediction_identity": true,
+    "audit_pass_and_full_count": true,
+    "audit_code_identity": true,
+    "state_terminal_and_attempts_ended": true,
+    "all_state_attempts_have_result_artifact": true,
+    "worker_input_result_usage_state_ledger_bound": true,
+    "per_question_cumulative_budgets": true,
+    "final_result_and_raw_submission_export": true,
+    "cumulative_prediction_usage_retains_failed_attempt": true,
+    "reasoning_fields_unreported_not_confirmed_zero": true,
+    "known_q1252_unreported_request_retained": true,
+    "audit_source_allowlist_exact": true,
+    "all_audit_source_hashes_match": true,
+    "audit_generation_counts_match": true,
+    "token_estimation_and_cost_unavailable": true,
+    "deliverable_single_run_complete_identity": true,
+    "deliverable_official_aggregates_and_audit_binding": true,
+    "deliverable_jsonl_hash_and_count": true,
+    "deliverable_rows_exact_source_projection": true,
+    "deliverable_source_allowlist_exact": true,
+    "deliverable_all_source_hashes_and_mtimes_match": true,
+    "all_read_source_bytes_and_mtime_unchanged": true
+  },
+  "scope": {
+    "inputs": "Frozen generation questions/metadata and selection manifest; one complete run manifest/predictions/scores/official summary/passing audit; all input/result/usage traces; read-only state rows for this run.",
+    "no_gold_answers_read": true,
+    "no_api_calls": true,
+    "no_business_sql_execution": true,
+    "no_scoring": true,
+    "state_opened_mode_ro": true,
+    "no_source_artifact_writes": true
+  },
+  "source_hashes": {
+    "F:\\data\\VSCodeproject\\AIDB-SQL\\.local-services\\experiments\\runs\\DSF_20260922_B0_01\\run_manifest.json": "af191147ea67ae5ef3785e973eaed46ce67323a3df0ca4828739577b72d36f16",
+    "F:\\data\\VSCodeproject\\AIDB-SQL\\.local-services\\experiments\\runs\\DSF_20260922_B0_01\\predictions.jsonl": "5b4f053ac8e83ede3e4cb8b0e482a97d3af1cbe6d74a9ec10ef6c6aa97db4aa6",
+    "F:\\data\\VSCodeproject\\AIDB-SQL\\.local-services\\experiments\\runs\\DSF_20260922_B0_01\\scores.jsonl": "3a3c9526a473f0aa109b256ad4adb5bb6b733dc9472217d6047d34a9b312072e",
+    "F:\\data\\VSCodeproject\\AIDB-SQL\\.local-services\\experiments\\runs\\DSF_20260922_B0_01\\summary.json": "8932f9c4518f78862e7c20a6f10815374175feaf8a701711946db42791ead71a",
+    "F:\\data\\VSCodeproject\\AIDB-SQL\\.local-services\\experiments\\runs\\DSF_20260922_B0_01\\engineering_audit.json": "305fec1755a45bf2e7dd9baafb52a0eb95b475ed9c2175859f82aaef3eec828c",
+    "F:\\data\\VSCodeproject\\AIDB-SQL\\experiments\\mini_dev_300_manifest.json": "a9ebfab6532b6c4fd94e6ee87e9d797673b770a82389c9584e772c0e409017ae",
+    "F:\\data\\VSCodeproject\\AIDB-SQL\\.local-services\\experiments\\dataset\\dataset_manifest.json": "dcb779111c283a9b2f6078ea7ca465408ad8653a3c797b763fbf290a5a20619f",
+    "F:\\data\\VSCodeproject\\AIDB-SQL\\.local-services\\experiments\\dataset\\generation\\questions.jsonl": "59f7887a0fcedc71024d13366283fd2420faf50f016f8d736618f103035f0b8b",
+    "F:\\data\\VSCodeproject\\AIDB-SQL\\.local-services\\experiments\\deliverables\\DSF_20260922_B0_01\\manifest.json": "bf44642700509b7977563270ef865874b8f73afeeea42e5970d03786eff97603",
+    "F:\\data\\VSCodeproject\\AIDB-SQL\\.local-services\\experiments\\deliverables\\DSF_20260922_B0_01\\question_sql_scores.jsonl": "20cf63dff9b88e1c9375b7a013ad29850b8442371fde62908a91b92ab0e2d94c",
+    "F:\\data\\VSCodeproject\\AIDB-SQL\\experiments\\audit_run.py": "60f7b7f6acb289438d4889e81ca3c72425140a194203524c37f25939cd2b38d0"
+  },
+  "trace_binding": {
+    "artifact_count": 903,
+    "attempt_count": 301,
+    "unique_sessions": 301,
+    "sha256_of_sorted_relative_path_hash_mtime_map": "43f07ee578d3dd7b620dc3b96e7ed57eb0a95c6cecad480646ad1b69c3ec4556"
+  },
+  "state_snapshot": {
+    "run_phase": "DIAGNOSE",
+    "terminal_questions": 300,
+    "attempt_count": 301,
+    "sha256_of_run_question_attempt_rows": "8917861919d3b0f5a6da086504d9aa8da9eebf28571f2fabca94e890b40e3da0"
+  },
+  "usage_shapes": [
+    {
+      "keys": [
+        "cached_content_token_count",
+        "candidates_token_count",
+        "prompt_token_count",
+        "total_token_count"
+      ],
+      "calls": 2897
+    }
+  ],
+  "limitations": [
+    "This is the first complete repetition in the official-provider series; no cross-provider gain comparison or candidate benefit inference is made.",
+    "The official EX records are verified from their frozen artifact provenance and arithmetic; Gold answers are not reopened or independently rescored.",
+    "Provider usage is the ADK-mapped usage captured by the worker. Missing usage, unreported reasoning, and monetary charges cannot be reconstructed from these artifacts."
+  ],
+  "deliverable": {
+    "directory": "F:\\data\\VSCodeproject\\AIDB-SQL\\.local-services\\experiments\\deliverables\\DSF_20260922_B0_01",
+    "record_count": 300,
+    "row_file_sha256": "20cf63dff9b88e1c9375b7a013ad29850b8442371fde62908a91b92ab0e2d94c",
+    "manifest_sha256": "bf44642700509b7977563270ef865874b8f73afeeea42e5970d03786eff97603",
+    "raw_submission_text_and_all_row_source_fields_exact": true,
+    "source_artifact_count": 912
+  }
+}
