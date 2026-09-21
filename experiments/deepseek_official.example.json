@@ -1,0 +1,20 @@
+{
+  "experiment_id": "B0_deepseek_official_20260922",
+  "model": "deepseek-flash",
+  "env_file": "F:/data/VSCodeproject/AIDB-SQL/.env",
+  "db_root": "F:/data/VSCodeproject/minidev/MINIDEV/dev_databases",
+  "max_llm_calls": 40,
+  "question_timeout_seconds": 900,
+  "sql_timeout_seconds": 30,
+  "max_transient_retries": 3,
+  "retry_backoff_seconds": [5, 20, 60],
+  "max_api_cost": null,
+  "max_total_api_calls": null,
+  "stop_on_insufficient_balance": true,
+  "temperature": 0,
+  "concurrency": 1,
+  "retrieval": "column_dual_rrf",
+  "repetition_count": 2,
+  "candidate_cost_ratio_limit": null,
+  "night_window": null
+}

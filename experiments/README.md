@@ -1,5 +1,10 @@
 # mini-dev reproducible experiments
 
+For the user-authorized 2026-09-22 switch to DeepSeek's official endpoint, use
+`deepseek_official.example.json` and the separate registry/run IDs documented in
+`DEEPSEEK_OFFICIAL_20260922.md`. The older Token Plan configuration and stopped run
+remain historical artifacts; changing provider/model cannot resume that frozen run.
+
 The fixed manifest selects 300 development questions and a deterministic 30-question
 smoke subset. The remaining 200 source questions are excluded from method selection.
 Business data stays in read-only SQLite. PostgreSQL contains versioned metadata and

@@ -40,6 +40,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 
 from google.adk.models.lite_llm import LiteLlm
+from experiments.model_contract import SUPPORTED_MODELS, nonthinking_body, validate_model_contract
 
 
 logger = logging.getLogger(__name__)
@@ -131,7 +132,7 @@ def create_model(
     """
     创建 LiteLlm 模型实例。
 
-    优先使用环境变量配置，如果未设置则使用默认值。
+    显式参数优先，否则使用环境变量；已知实验别名遵循提供方契约。
     注意：生产环境应通过环境变量配置敏感信息。
 
     Args:
@@ -145,21 +146,16 @@ def create_model(
     Raises:
         ValueError: 如果必需的配置项缺失
     """
-    # 从环境变量读取配置，提供默认值（仅用于开发环境）
+    # The experiment worker validates its model before entering this general app factory.
     llm_config = {
         "base_url": base_url or os.environ.get("LITE_LLM_BASE_URL"),
         "api_key": api_key or os.environ.get("LITE_LLM_API_KEY"),
-        "model_name": model_name or os.environ.get(
-            "LITE_LLM_MODEL_NAME",
-            # "qwen3.5-plus"
-            # "gpt-4-omni"
-            "Qwen/Qwen3-235B-A22B"
-            # "qwen3-max"
-            # "kimi-k2.6"
-        ),
+        "model_name": model_name or os.environ.get("LITE_LLM_MODEL_NAME", "Qwen/Qwen3-235B-A22B"),
         "headers": {}
     }
 
+    if llm_config["model_name"] in SUPPORTED_MODELS:
+        validate_model_contract(llm_config["model_name"], llm_config["base_url"])
     # 验证必需的配置项
     if not llm_config["api_key"]:
         raise ValueError(
@@ -183,9 +179,9 @@ def create_model(
         num_retries=0,
         max_retries=0,
         timeout=float(os.environ.get("LITE_LLM_REQUEST_TIMEOUT", "120")),
-        extra_body={
-            "chat_template_kwargs": {"enable_thinking": False}
-        },
+        extra_body=(nonthinking_body(llm_config["model_name"])
+                    if llm_config["model_name"] in SUPPORTED_MODELS
+                    else {"chat_template_kwargs": {"enable_thinking": False}}),
     )
     return model
 

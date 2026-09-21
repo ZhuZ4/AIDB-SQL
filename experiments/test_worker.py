@@ -1,16 +1,18 @@
 """Offline contracts for prediction isolation, budgets, and raw submissions."""
 
 import asyncio
-from contextlib import closing
+from contextlib import closing, ExitStack
 import os
 from pathlib import Path
 import sqlite3
+import sys
 import tempfile
 import types
 import unittest
 from unittest.mock import patch
 
-from experiments.worker import classify_error, database_uri, redact, validate_input
+from experiments.worker import classify_error, database_uri, predict, redact, validate_input
+from experiments.model_contract import endpoint_sha256, validate_model_contract
 
 
 class WorkerInputTests(unittest.TestCase):
@@ -50,7 +52,9 @@ class WorkerInputTests(unittest.TestCase):
 
 class SQLiteIsolationTests(unittest.TestCase):
     def setUp(self):
-        from tools import native_sql_tools
+        # Local fixtures never need credentials from the project's real .env.
+        with patch("dotenv.load_dotenv"):
+            from tools import native_sql_tools
         self.tools = native_sql_tools
         self.temporary = tempfile.TemporaryDirectory()
         self.base = Path(self.temporary.name)
@@ -136,6 +140,124 @@ class SQLiteIsolationTests(unittest.TestCase):
         self.tools.get_tool_call_manager().reset_session("cte-session")
         self.assertIn("查询成功", self.tools.sql_db_query(
             "/* read only */ WITH src AS (SELECT value FROM sample) SELECT value FROM src"))
+
+
+class ModelConstructionTests(unittest.TestCase):
+    def test_real_model_constructor_keeps_provider_specific_nonthinking_and_limits(self):
+        with patch("socket.socket.connect", side_effect=AssertionError("Network forbidden")), \
+                patch("socket.socket.connect_ex", side_effect=AssertionError("Network forbidden")), \
+                patch.dict(os.environ, {"LITE_LLM_TEMPERATURE": "0", "LITE_LLM_REQUEST_TIMEOUT": "120"}):
+            from utils import create_model, TrackedLiteLlm
+            for name, url, body in (
+                ("deepseek-v4.1-flash", "http://offline.invalid/v1",
+                 {"chat_template_kwargs": {"enable_thinking": False}}),
+                ("deepseek-flash", "https://api.deepseek.com/v1", {"thinking": {"type": "disabled"}}),
+                ("offline-app-model", "http://offline.invalid/v1",
+                 {"chat_template_kwargs": {"enable_thinking": False}}),
+            ):
+                with self.subTest(model=name):
+                    model = create_model(model_name=name, base_url=url, api_key="offline-unused")
+                    self.assertIsInstance(model, TrackedLiteLlm)
+                    self.assertEqual(model.model, "openai/" + name)
+                    args = model._additional_args
+                    self.assertEqual(args["api_base"], url)
+                    self.assertEqual(args["extra_body"], body)
+                    self.assertEqual(args["temperature"], 0)
+                    self.assertEqual((args["num_retries"], args["max_retries"], args["timeout"]), (0, 0, 120))
+
+    def test_model_contract_rejects_unverified_aliases_and_official_endpoint_impersonation(self):
+        for name in ("deepseek-chat", "deepseek-v4-pro", "", None):
+            with self.subTest(model=name), self.assertRaises(ValueError):
+                validate_model_contract(name, "https://api.deepseek.com/v1")
+        for url in (
+            "http://api.deepseek.com/v1", "https://api.deepseek.com.evil.invalid/v1",
+            "https://proxy.invalid/v1", "https://user:unused@api.deepseek.com/v1",
+            "https://api.deepseek.com:8443/v1", "https://api.deepseek.com/v1?redirect=elsewhere",
+            "https://api.deepseek.com/v1#fragment", "https://api.deepseek.\ncom/v1",
+        ):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                validate_model_contract("deepseek-flash", url)
+        for url in ("https://api.deepseek.com", "https://api.deepseek.com/v1",
+                    "https://api.deepseek.com:443/v1/"):
+            with self.subTest(url=url):
+                self.assertEqual(validate_model_contract("deepseek-flash", url)["provider_endpoint_sha256"],
+                                 endpoint_sha256(url))
+
+
+class WorkerProviderTests(unittest.IsolatedAsyncioTestCase):
+    async def invoke(self, model, url, config, *, pass_runtime=False):
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+            env = Path(temporary) / "fixture.env"
+            env.write_text(f"LITE_LLM_MODEL_NAME={model}\nLITE_LLM_BASE_URL={url}\n"
+                           "LITE_LLM_API_KEY=offline-unused\n", encoding="utf-8")
+            stack.enter_context(patch.dict(os.environ, {}, clear=True))
+            stack.enter_context(patch("socket.socket.connect", side_effect=AssertionError("Network forbidden")))
+            stack.enter_context(patch("socket.socket.connect_ex", side_effect=AssertionError("Network forbidden")))
+            boundary = stack.enter_context(patch("experiments.worker.database_uri",
+                                                 return_value="sqlite:///offline?mode=ro&uri=true"))
+            if not pass_runtime:
+                boundary.side_effect = RuntimeError("offline validation boundary")
+            else:
+                class FakeService:
+                    def __init__(self, **kwargs):
+                        self.last_run_diagnostics = {}
+                        self._adk = types.SimpleNamespace(get_available_skills=lambda: [
+                            {"name": name} for name in
+                            ("data-link", "database-query-helper", "correct", "schema-exploration")])
+
+                    async def run_query(self, **kwargs):
+                        return {"execution_error": {"status_code": 401, "message": "offline authentication fixture"}}
+
+                native = types.SimpleNamespace(
+                    get_final_sql=lambda *_: {}, get_sql_execution_trace=lambda *_: [],
+                    get_correction_events=lambda *_: [], get_linked_schema=lambda *_: set(),
+                    get_linked_schema_snapshot=lambda *_: set(),
+                )
+                stack.enter_context(patch.dict(sys.modules, {
+                    "agent": types.SimpleNamespace(AgentService=FakeService),
+                    "tools": types.SimpleNamespace(native_sql_tools=native),
+                }))
+                stack.enter_context(patch("experiments.sqlite_runtime.bootstrap_sqlite_runtime",
+                                          return_value={"version": "3.40.1", "dll_sha256": "offline"}))
+            result = await predict({"question": "Count rows", "evidence": "Fixture", "db_id": "example",
+                                    "config": {"env_file": str(env), **config}})
+            return result, boundary.call_count
+
+    async def test_endpoint_drift_is_rejected_before_model_or_database_construction(self):
+        actual = "https://api.deepseek.com/v1"
+        for name in ("deepseek-flash", "deepseek-v4.1-flash"):
+            result, calls = await self.invoke(name, actual, {
+                "model_name": name, "provider_endpoint_sha256": endpoint_sha256("https://old.invalid/v1")})
+            self.assertEqual(calls, 0)
+            self.assertEqual(result["llm_calls"], 0)
+            self.assertEqual(result["metadata"]["provider_endpoint_sha256"], endpoint_sha256(actual))
+            self.assertIn("frozen endpoint hash", result["error"]["message"])
+
+    async def test_new_alias_requires_frozen_hash_and_model_must_match_environment(self):
+        for config in ({"model_name": "deepseek-flash"},
+                       {"model_name": "deepseek-v4.1-flash", "provider_endpoint_sha256": "0" * 64},
+                       {"model_name": None, "provider_endpoint_sha256": "0" * 64}):
+            result, calls = await self.invoke("deepseek-flash", "https://api.deepseek.com/v1", config)
+            self.assertEqual(calls, 0)
+            self.assertEqual(result["llm_calls"], 0)
+            self.assertEqual(result["status"], "failed")
+
+    async def test_legacy_payload_without_hash_still_passes_contract(self):
+        result, calls = await self.invoke("deepseek-v4.1-flash", "http://offline.invalid/v1", {})
+        self.assertEqual(calls, 1)
+        self.assertIn("offline validation boundary", result["error"]["message"])
+
+    async def test_identity_metadata_survives_runtime_and_failed_service_result(self):
+        url = "https://api.deepseek.com/v1"
+        result, calls = await self.invoke("deepseek-flash", url, {
+            "model_name": "deepseek-flash", "provider_endpoint_sha256": endpoint_sha256(url)}, pass_runtime=True)
+        self.assertEqual(calls, 1)
+        self.assertEqual(result["error_category"], "authentication")
+        self.assertEqual(result["model"], "deepseek-flash")
+        self.assertEqual(result["metadata"]["model_name"], "deepseek-flash")
+        self.assertEqual(result["metadata"]["provider_endpoint_sha256"], endpoint_sha256(url))
+        self.assertEqual(result["metadata"]["sqlite_runtime"]["version"], "3.40.1")
+        self.assertEqual(result["llm_calls"], 0)
 
 
 class ModelTrackingTests(unittest.IsolatedAsyncioTestCase):

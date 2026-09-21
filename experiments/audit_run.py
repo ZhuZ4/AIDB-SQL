@@ -25,7 +25,7 @@ INPUT_KEYS = GENERATION_KEYS | {"run_id", "attempt", "config"}
 CONFIG_KEYS = {
     "max_llm_calls", "question_timeout_seconds", "sql_timeout_seconds", "env_file", "db_root",
     "index_table", "index_version", "temperature", "max_sql_query_calls", "request_timeout_seconds",
-    "experiment_profile", "model_name", "data_link_policy",
+    "experiment_profile", "model_name", "data_link_policy", "provider_endpoint_sha256",
 }
 DATA_LINK_SKILL_PATHS = {
     "baseline": "skills/data-link/SKILL.md",
@@ -382,6 +382,11 @@ def audit_run(dataset_dir: Path, run_dir: Path, *, subset: str = "all",
                     for row in questions), "generation_contains_answer_or_unexpected_fields")
     audit.check(all(isinstance(value, int) and not isinstance(value, bool) for value in ids), "invalid_question_id_type")
     config = manifest.get("config") or {}
+    provider_identity_required = config.get("model") == "deepseek-flash"
+    provider_hash = config.get("provider_endpoint_sha256")
+    provider_hash_known = isinstance(provider_hash, str) and re.fullmatch(r"[0-9a-fA-F]{64}", provider_hash) is not None
+    if provider_identity_required:
+        audit.check(provider_hash_known, "manifest_provider_endpoint_hash_missing_or_invalid")
     data_link_policy = config.get("data_link_policy", "baseline")
     known_policy = isinstance(data_link_policy, str) and data_link_policy in DATA_LINK_SKILL_PATHS
     audit.check(known_policy, "manifest_unknown_data_link_policy")
@@ -455,6 +460,25 @@ def audit_run(dataset_dir: Path, run_dir: Path, *, subset: str = "all",
             if result.get("run_id") is not None:
                 audit.check(result["run_id"] == manifest.get("run_id"), "worker_result_run_id_mismatch", **attempt_context)
             worker_config = payload.get("config") or {}
+            metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+            # Historical B0 inputs did not carry the manifest's provider hash.
+            # New inputs bind the observed worker endpoint even on failed attempts.
+            if provider_identity_required or "provider_endpoint_sha256" in worker_config:
+                audit.check(provider_hash_known and worker_config.get("provider_endpoint_sha256") == provider_hash,
+                            "worker_provider_endpoint_config_mismatch", **attempt_context)
+                if metadata.get("provider_endpoint_sha256") is None:
+                    audit.note("unverified", "worker_provider_endpoint_metadata_missing", **attempt_context)
+                else:
+                    audit.check(provider_hash_known and metadata["provider_endpoint_sha256"] == provider_hash,
+                                "worker_provider_endpoint_metadata_mismatch", **attempt_context)
+            if provider_identity_required:
+                if result.get("model") is None:
+                    audit.note("unverified", "worker_model_identity_missing", field="model", **attempt_context)
+                if metadata.get("model_name") is None:
+                    audit.note("unverified", "worker_model_identity_missing", field="metadata.model_name", **attempt_context)
+                else:
+                    audit.check(metadata["model_name"] == config["model"],
+                                "worker_model_metadata_mismatch", **attempt_context)
             for key, default in (("index_table", None), ("index_version", None), ("temperature", 0),
                                  ("sql_timeout_seconds", 30), ("max_sql_query_calls", 4), ("experiment_profile", "full"),
                                  ("request_timeout_seconds", 120), ("data_link_policy", "baseline")):
@@ -470,7 +494,7 @@ def audit_run(dataset_dir: Path, run_dir: Path, *, subset: str = "all",
             seconds = worker_config.get("question_timeout_seconds")
             audit.check(number(budget) and 0 < budget <= max_calls - used_calls, "retry_call_budget_not_reduced", **attempt_context)
             audit.check(number(seconds) and 0 < seconds <= max_seconds - used_seconds + timing_tolerance_seconds, "retry_time_budget_not_reduced", **attempt_context)
-            for runtime in (result.get("sqlite_runtime"), (result.get("metadata") or {}).get("sqlite_runtime")):
+            for runtime in (result.get("sqlite_runtime"), metadata.get("sqlite_runtime")):
                 if runtime is not None:
                     audit.check(runtime_identity(runtime) == expected_runtime, "worker_sqlite_runtime_changed", **attempt_context)
             if not result.get("sqlite_runtime") and (result.get("llm_calls") or 0) > 0:
@@ -488,7 +512,6 @@ def audit_run(dataset_dir: Path, run_dir: Path, *, subset: str = "all",
             usage = audit_usage(audit, result, checkpoint, expected_model=config.get("model", ""), **attempt_context)
             usage_checks.append(usage)
             calls = usage["calls"]
-            metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
             policy_metadata_present = "data_link_policy" in metadata or "data_link_skill_sha256" in metadata
             if policy_metadata_present:
                 if "data_link_policy" not in metadata or "data_link_skill_sha256" not in metadata:

@@ -1,5 +1,16 @@
 # Autonomous mini-dev execution status
 
+Latest update, 2026-09-22: the user supplied a DeepSeek official API key and changed
+the endpoint. Authenticated model/balance checks and a two-request tool round trip
+passed. The official V4.1-Flash API name is `deepseek-flash`; `.env` now uses that
+name. Provider adaptation is being frozen for the independent
+`deepseek_official_20260922` series, with the same fixed 300/30 questions and budgets.
+See `DEEPSEEK_OFFICIAL_20260922.md` and `deepseek_official_cost_notes.md`.
+
+The results below describe the preserved earlier Token Plan series. Its stopped
+281-question repeat is not resumed with the new provider and is not combined with
+the new series. The historical best remains 180/300; no new-provider EX is available yet.
+
 Started 2026-09-21 (Asia/Shanghai) from `codex/dev_legion`, base commit `bd8502f`.
 Authorized design and permissions were recovered from task
 `01a0b3b9-48c9-7ba2-a3ef-5fcacfde8a0e` and `AUTONOMOUS_MINIDEV_PLAN.md`.

@@ -120,6 +120,29 @@ class EngineeringAuditTests(unittest.TestCase):
             self.predictions[qid]["metadata"] = copy.deepcopy(result["metadata"])
         self.save_predictions()
 
+    def configure_provider_identity(self, model="deepseek-flash", *, input_binding=True, metadata_binding=True):
+        self.config.update(model=model, provider_endpoint_sha256="d" * 64)
+        self.save_manifest_fingerprint()
+        for qid in range(30):
+            payload = json.loads(self.path(qid, "input").read_text(encoding="utf-8"))
+            payload["config"]["model_name"] = model
+            if input_binding:
+                payload["config"]["provider_endpoint_sha256"] = self.config["provider_endpoint_sha256"]
+            write_json(self.path(qid, "input"), payload)
+            result = json.loads(self.path(qid, "result").read_text(encoding="utf-8"))
+            result["model"] = model
+            for call in result["usage"]["calls"]:
+                call["model"] = "openai/" + model
+            if metadata_binding:
+                result["metadata"] = {"model_name": model, "provider_endpoint_sha256": self.config["provider_endpoint_sha256"]}
+            write_json(self.path(qid, "result"), result)
+            write_json(self.path(qid, "usage"), {"question_id": qid, "attempt": 1,
+                                               "session_id": result["session_id"], "usage": result["usage"]})
+            self.predictions[qid].update(model=model, usage=copy.deepcopy(result["usage"]))
+            if metadata_binding:
+                self.predictions[qid]["metadata"] = copy.deepcopy(result["metadata"])
+        self.save_predictions()
+
     def test_complete_artifact_audit_does_not_need_gold_scores_sqlite_or_env(self):
         before = sha256_file(self.run / "predictions.jsonl")
         report = self.execute()
@@ -439,6 +462,115 @@ class EngineeringAuditTests(unittest.TestCase):
         self.mutate_result(lambda result: result["metadata"].update(data_link_skill_sha256="b" * 64))
         report = self.execute()
         self.assertIn("worker_data_link_skill_hash_mismatch", self.codes(report))
+
+    def test_official_provider_identity_matches_manifest_inputs_and_results(self):
+        self.configure_provider_identity()
+        report = self.execute()
+        self.assertTrue(report["passed"], report["engineering_findings"] + report["unverified_evidence"])
+        self.assertFalse(Path(self.config["env_file"]).exists())
+
+    def test_official_provider_manifest_requires_valid_endpoint_hash(self):
+        self.configure_provider_identity()
+        for label, value in (("missing", None), ("invalid", "not-a-sha256")):
+            with self.subTest(label=label):
+                if value is None:
+                    self.config.pop("provider_endpoint_sha256", None)
+                else:
+                    self.config["provider_endpoint_sha256"] = value
+                self.save_manifest_fingerprint()
+                report = self.execute(filename=f"audit-{label}.json")
+                self.assertIn("manifest_provider_endpoint_hash_missing_or_invalid", self.codes(report))
+                self.assertFalse(report["passed"])
+
+    def test_official_provider_input_identity_cannot_change_or_disappear(self):
+        self.configure_provider_identity()
+        for qid in (0, 1, 2):
+            payload = json.loads(self.path(qid, "input").read_text(encoding="utf-8"))
+            if qid == 0:
+                payload["config"]["provider_endpoint_sha256"] = "e" * 64
+            elif qid == 1:
+                payload["config"].pop("provider_endpoint_sha256")
+            else:
+                payload["config"]["model_name"] = "deepseek-v4.1-flash"
+            write_json(self.path(qid, "input"), payload)
+        report = self.execute()
+        endpoint_errors = [row for row in report["engineering_findings"]
+                           if row["code"] == "worker_provider_endpoint_config_mismatch"]
+        self.assertEqual({row["question_id"] for row in endpoint_errors}, {0, 1})
+        self.assertIn("worker_model_config_changed", self.codes(report))
+
+    def test_official_provider_result_endpoint_and_model_mismatches_are_rejected(self):
+        self.configure_provider_identity()
+        self.mutate_result(lambda result: result["metadata"].update(provider_endpoint_sha256="e" * 64))
+        self.mutate_result(lambda result: result["metadata"].update(model_name="deepseek-v4.1-flash"), question_id=1)
+        self.mutate_result(lambda result: result.update(model="deepseek-v4.1-flash"), question_id=2)
+        report = self.execute()
+        self.assertIn("worker_provider_endpoint_metadata_mismatch", self.codes(report))
+        self.assertIn("worker_model_metadata_mismatch", self.codes(report))
+        self.assertTrue(any(row["code"] == "worker_reported_identity_changed" and row.get("field") == "model"
+                            for row in report["engineering_findings"]))
+
+    def test_official_provider_missing_observed_identity_is_unverified(self):
+        self.configure_provider_identity()
+        self.mutate_result(lambda result: result["metadata"].pop("provider_endpoint_sha256"))
+        self.mutate_result(lambda result: result["metadata"].pop("model_name"), question_id=1)
+        self.mutate_result(lambda result: result.update(model=None), question_id=2)
+        report = self.execute()
+        self.assertEqual(report["result"], "incomplete_evidence")
+        self.assertEqual(report["engineering_findings"], [])
+        self.assertIn("worker_provider_endpoint_metadata_missing", self.codes(report))
+        missing_models = [row for row in report["unverified_evidence"] if row["code"] == "worker_model_identity_missing"]
+        self.assertEqual({row["field"] for row in missing_models}, {"model", "metadata.model_name"})
+
+    def test_official_provider_failure_before_environment_validation_is_unverified(self):
+        self.configure_provider_identity()
+        def fail_before_validation(result):
+            result.update(status="failed", submitted_final_sql="", final_sql="", final_sql_source="",
+                          error_category="service_error", llm_calls=0, model=None, metadata={})
+            result["trace"].update(tool_trace=[], sql_execution_trace=[], submitted_final_sql="")
+            result["usage"].update(llm_calls=0, calls=[], calls_without_usage=0, usage_complete=True)
+            for metric in AGGREGATED:
+                if metric not in ("llm_calls", "duration_seconds"):
+                    result["usage"][metric] = None
+                    result[metric] = None
+        result = self.mutate_result(fail_before_validation)
+        write_json(self.path(0, "usage"), {"question_id": 0, "attempt": 1,
+                                          "session_id": result["session_id"], "usage": result["usage"]})
+        for metric in AGGREGATED:
+            value = result.get(metric, result["usage"].get(metric))
+            self.predictions[0][metric] = value
+            self.predictions[0][metric + "_known"] = value if value is not None else 0
+        self.save_predictions()
+        report = self.execute()
+        self.assertEqual(report["result"], "incomplete_evidence")
+        self.assertEqual(report["engineering_findings"], [])
+        self.assertIn("worker_provider_endpoint_metadata_missing", self.codes(report))
+        self.assertIn("worker_model_identity_missing", self.codes(report))
+
+    def test_exported_provider_metadata_must_match_final_worker_record(self):
+        self.configure_provider_identity()
+        self.predictions[0]["metadata"]["provider_endpoint_sha256"] = "e" * 64
+        self.save_predictions()
+        report = self.execute()
+        self.assertTrue(any(row["code"] == "exported_final_worker_record_changed" and row.get("field") == "metadata"
+                            for row in report["engineering_findings"]))
+
+    def test_legacy_provider_manifest_hash_does_not_require_new_worker_metadata(self):
+        self.configure_provider_identity("deepseek-v4.1-flash", input_binding=False, metadata_binding=False)
+        report = self.execute()
+        self.assertTrue(report["passed"], report["engineering_findings"] + report["unverified_evidence"])
+
+    def test_legacy_provider_explicit_input_hash_enables_endpoint_checks(self):
+        self.configure_provider_identity("deepseek-v4.1-flash")
+        self.mutate_result(lambda result: result["metadata"].pop("provider_endpoint_sha256"))
+        self.mutate_result(lambda result: result["metadata"].update(provider_endpoint_sha256="e" * 64), question_id=1)
+        payload = json.loads(self.path(2, "input").read_text(encoding="utf-8"))
+        payload["config"]["provider_endpoint_sha256"] = "e" * 64
+        write_json(self.path(2, "input"), payload)
+        report = self.execute()
+        self.assertIn("worker_provider_endpoint_metadata_missing", self.codes(report))
+        self.assertIn("worker_provider_endpoint_metadata_mismatch", self.codes(report))
+        self.assertIn("worker_provider_endpoint_config_mismatch", self.codes(report))
 
 
 if __name__ == "__main__":

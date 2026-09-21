@@ -16,6 +16,7 @@ from unittest.mock import patch
 from experiments import run_batch as batch
 from experiments.state import atomic_json
 from experiments.worker import CONFIG_KEYS, classify_error, validate_input
+from experiments.model_contract import endpoint_sha256
 
 
 class BatchBoundaryTests(unittest.TestCase):
@@ -180,7 +181,7 @@ class BatchBoundaryTests(unittest.TestCase):
         config = validate_input(payload)
         self.assertLessEqual(set(config), CONFIG_KEYS)
         self.assertNotIn('audit_only', config)
-        self.assertNotIn('provider_endpoint_sha256', config)
+        self.assertEqual(config['provider_endpoint_sha256'], endpoint_sha256('http://offline.invalid/v1'))
         self.assertNotIn('services_sha256', config)
         self.assertNotIn('SQL', payload)
         self.assertEqual(config['index_version'], 'column_dual_v1_test')
@@ -197,6 +198,48 @@ class BatchBoundaryTests(unittest.TestCase):
         self.assertEqual(len(self.dispatched), 1)
         self.assertEqual(len(self.predictions()), 1)
         self.assertEqual(self.query('SELECT COUNT(*) AS n FROM questions WHERE status="pending"')[0]['n'], 29)
+
+    def set_provider(self, model, url):
+        with self.env_path.open('a', encoding='utf-8') as stream:
+            stream.write(f'LITE_LLM_MODEL_NAME={model}\nLITE_LLM_BASE_URL={url}\n')
+        self.config['model'] = model
+        atomic_json(self.config_path, self.config)
+
+    def test_official_alias_dispatch_freezes_model_and_endpoint_without_budget_changes(self):
+        url = 'https://api.deepseek.com/v1'
+        self.set_provider('deepseek-flash', url)
+        self.invoke(lambda *args: self.success(), max_questions=1)
+        config = self.dispatched[0]['payload']['config']
+        self.assertEqual(config['model_name'], 'deepseek-flash')
+        self.assertEqual(config['provider_endpoint_sha256'], endpoint_sha256(url))
+        self.assertEqual((config['max_llm_calls'], config['question_timeout_seconds'],
+                          config['sql_timeout_seconds'], config['temperature']), (40, 900, 30, 0))
+        manifest = json.loads((self.local / 'runs' / 'offline' / 'run_manifest.json').read_text(encoding='utf-8'))
+        self.assertEqual(manifest['config']['provider_endpoint_sha256'], config['provider_endpoint_sha256'])
+
+    def test_provider_migration_cannot_resume_the_old_run(self):
+        self.invoke(lambda *args: self.success(), max_questions=1)
+        predictions = (self.local / 'runs' / 'offline' / 'predictions.jsonl').read_bytes()
+        self.set_provider('deepseek-flash', 'https://api.deepseek.com/v1')
+        with self.assertRaisesRegex(ValueError, 'create a new run_id'):
+            self.invoke(lambda *args: self.success(), max_questions=1)
+        self.assertEqual(len(self.dispatched), 1)
+        self.assertEqual((self.local / 'runs' / 'offline' / 'predictions.jsonl').read_bytes(), predictions)
+        self.assertEqual(len(self.query('SELECT * FROM attempts')), 1)
+
+    def test_config_rejects_wrong_model_or_unverified_official_endpoint(self):
+        for model, url in (('deepseek-v4-pro', 'https://api.deepseek.com/v1'),
+                           ('deepseek-flash', 'http://api.deepseek.com/v1'),
+                           ('deepseek-flash', 'https://other.invalid/v1')):
+            with self.subTest(model=model, url=url):
+                self.set_provider(model, url)
+                with self.assertRaises(ValueError):
+                    batch.load_config(self.config_path)
+        self.set_provider('deepseek-flash', 'https://api.deepseek.com/v1')
+        self.config['model'] = 'deepseek-v4.1-flash'
+        atomic_json(self.config_path, self.config)
+        with self.assertRaisesRegex(ValueError, 'does not match'):
+            batch.load_config(self.config_path)
 
     def test_service_configuration_drift_stops_before_next_dispatch(self):
         def changed_service(*args):

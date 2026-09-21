@@ -24,11 +24,13 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from experiments.model_contract import endpoint_sha256, validate_model_contract
+
 INPUT_KEYS = {"question_id", "db_id", "question", "evidence", "run_id", "attempt", "config"}
 CONFIG_KEYS = {
     "max_llm_calls", "question_timeout_seconds", "sql_timeout_seconds", "env_file",
     "db_root", "index_table", "index_version", "temperature", "max_sql_query_calls",
-    "request_timeout_seconds", "experiment_profile", "model_name",
+    "request_timeout_seconds", "experiment_profile", "model_name", "provider_endpoint_sha256",
 }
 
 
@@ -140,7 +142,7 @@ async def predict(payload: dict, usage_checkpoint: Path | None = None) -> dict:
         "final_sql_source": "", "error_category": "", "error": None,
         "retryable": False, "stop_reason": None, "trace": {},
         "llm_calls": 0, "prompt_tokens": None, "completion_tokens": None,
-        "usage": {},
+        "usage": {}, "metadata": {},
     }
     service = None
     tracker = None
@@ -153,10 +155,18 @@ async def predict(payload: dict, usage_checkpoint: Path | None = None) -> dict:
         load_dotenv(env_path, override=True)
         # Respect this project's user-selected provider and model; never fall back.
         model_name = os.environ.get("LITE_LLM_MODEL_NAME", "")
-        if model_name != "deepseek-v4.1-flash":
-            raise ValueError("Configured model must remain deepseek-v4.1-flash")
+        base_url = os.environ.get("LITE_LLM_BASE_URL", "")
+        # Record actual environment identity even when frozen-contract validation
+        # rejects this attempt. Never label a changed endpoint with the expected hash.
+        result["model"] = model_name
+        result["metadata"].update(model_name=model_name, provider_endpoint_sha256=endpoint_sha256(base_url))
         if config.get("model_name", model_name) != model_name:
             raise ValueError("Experiment model_name does not match the configured model")
+        validate_model_contract(
+            model_name, base_url, expected_model=config.get("model_name", model_name),
+            frozen_endpoint_sha256=config.get("provider_endpoint_sha256"),
+            require_frozen_endpoint=True,
+        )
         if not os.environ.get("LITE_LLM_API_KEY") or not os.environ.get("LITE_LLM_BASE_URL"):
             raise ValueError("Missing SQL model API credentials/base URL")
         max_calls = int(config.get("max_llm_calls", 40))
@@ -183,7 +193,7 @@ async def predict(payload: dict, usage_checkpoint: Path | None = None) -> dict:
         # This must happen before agent/langchain/SQLAlchemy can import sqlite3.
         from experiments.sqlite_runtime import bootstrap_sqlite_runtime
         result["sqlite_runtime"] = bootstrap_sqlite_runtime()
-        result["metadata"] = {"sqlite_runtime": result["sqlite_runtime"]}
+        result["metadata"]["sqlite_runtime"] = result["sqlite_runtime"]
         from agent import AgentService
         from tools import native_sql_tools
         from utils import ModelUsageTracker, model_usage_tracker

@@ -13,6 +13,7 @@ import time
 
 from experiments.state import State, TERMINAL, atomic_json, checkpoint_usage, single_instance
 from experiments.process_control import identity_alive, terminate_worker_tree, wait_worker_hello
+from experiments.model_contract import validate_model_contract
 from experiments.worker import CONFIG_KEYS
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,14 +41,18 @@ def load_config(path, frozen_index=None):
     value = json.loads(path.read_text(encoding="utf-8-sig"))
     from dotenv import dotenv_values
     env = dotenv_values(value.get("env_file", ROOT / ".env"))
-    if value.get("model") != "deepseek-v4.1-flash" or env.get("LITE_LLM_MODEL_NAME") != value["model"]:
-        raise ValueError("Experiment must use the explicitly configured deepseek-v4.1-flash model")
+    if not value.get("model"):
+        raise ValueError("Experiment must explicitly configure its model")
+    model_contract = validate_model_contract(
+        env.get("LITE_LLM_MODEL_NAME"), env.get("LITE_LLM_BASE_URL"),
+        expected_model=value["model"],
+    )
     if value.get("concurrency", 1) != 1:
         raise ValueError("Initial experiments require serial process isolation")
     frozen_index = frozen_index or {}
     value["index_table"] = value.get("index_table") or frozen_index.get("index_table") or env.get("BIRD_DEV_COLUMN_TABLE")
     value["index_version"] = value.get("index_version") or frozen_index.get("index_version") or env.get("BIRD_DEV_INDEX_VERSION")
-    value["provider_endpoint_sha256"] = hashlib.sha256(str(env.get("LITE_LLM_BASE_URL", "")).encode()).hexdigest()
+    value["provider_endpoint_sha256"] = model_contract["provider_endpoint_sha256"]
     # Hash service configuration without exposing connection credentials. Index
     # table/version are explicit per-worker overrides and deliberately excluded.
     service_keys = ("LITE_LLM_BASE_URL", "LITE_LLM_MODEL_NAME", "EMBEDDING_API_URL", "EMBEDDING_MODEL",
