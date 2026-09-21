@@ -149,9 +149,19 @@
       "agent_submission_without_prior_matching_query_call": 4,
       "sql_calls_denied_or_not_physically_executed": 20,
       "provider_usage_partly_unreported": 1
-    }
+    },
+    "historical_rule_set_result": true
   },
   "scores_sha256": "1051a3582f1c864146442b2791c0f4cfc90897f38f3fa675f413d004a6b4ad3e",
   "predictions_sha256": "31e38b17754a9d2ac800c2449440ec65acf7bf75cb9b3a28bb1c7771ae15da63",
-  "interpretation": "First complete B0 run, not a performance improvement or stable repeated estimate. All 300 fixed questions remain in the denominator. One transient API error retried within the shared question budget; its token usage is unreported. Matched run B0_20260921_02 is in progress. Gold-reference coverage gaps are hypotheses, not established error causes."
+  "interpretation": "First complete B0 run, not a performance improvement or stable repeated estimate. All 300 fixed questions remain in the denominator. One transient API error retried within the shared question budget; its token usage is unreported. Matched run B0_20260921_02 stopped on provider weekly quota exhaustion at 281 terminal records with 19 pending; it has no full-run EX. Gold-reference coverage gaps are hypotheses, not established error causes.",
+  "post_run_accounting_review": {
+    "strict_audit_passed": false,
+    "errors": 1,
+    "unverified_evidence": 0,
+    "question_id": 960,
+    "error": "exported_usage_unknown_flag_mismatch",
+    "detail": "Historical export retained usage_unknown=false after an earlier failed request. All token complete totals already remain null; known subtotals and official EX are unaffected. Original registered artifacts and hashes are preserved.",
+    "verification_artifact": ".local-services/experiments/usage_completeness_fix_verification.json"
+  }
 }

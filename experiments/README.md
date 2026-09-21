@@ -99,12 +99,27 @@ The first complete B0 scored 180/300 (60.00% official EX). Its predictions, scor
 engineering audit and development-only diagnosis are retained locally. The second
 predeclared B0 run uses the same separate frozen checkout at
 `F:/data/VSCodeproject/AIDB-SQL-B0` and commit `5a82da5`. Its local service directory
-points to this project's ignored service directory. Resume the unfinished repeat
-from the frozen checkout, not a later edited tree; do not rerun the completed first
-run's old supervisor to regenerate already-registered score artifacts:
+points to this project's ignored service directory. This repeat stopped on weekly
+API quota exhaustion at 281/300 terminal records; 19 questions remain pending.
+The provider reported a reset at 2026-09-28 02:33 Asia/Shanghai. No automatic restart
+or quota polling is scheduled. Only after quota is available and this resource-stopped
+task is resumed, use the following command from the unchanged frozen checkout.
+Do not rerun the completed first run's old supervisor to regenerate already-registered
+score artifacts:
 
 ```powershell
 Push-Location 'F:\data\VSCodeproject\AIDB-SQL-B0'
-& 'F:\data\VSCodeproject\AIDB-SQL\.venv\Scripts\python.exe' -m experiments.supervisor --run-id B0_20260921_02
+& 'F:\data\VSCodeproject\AIDB-SQL\.venv\Scripts\python.exe' -m experiments.run_batch --run-id B0_20260921_02
 Pop-Location
 ```
+
+The saved q93 quota attempt retains its one used model call and 8.407 seconds; the
+next attempt has 39 calls and about 891.593 seconds remaining. Existing 281 terminal
+records are reused, including the six semantic failures. The frozen exporter has a
+retry usage-completeness bug. Therefore resume generation with `run_batch`, not the
+old supervisor that immediately scores its export. After all 300 records exist,
+use the main worktree's `repair_usage_export --publish-before-evaluation`, audit,
+then main supervisor for scoring and registration. The repair retains the original
+export and rejects SQL/identity changes, partial publication and already scored runs.
+See the exact commands in `RESOURCE_STOP_20260921.md`. Apply this same separation
+to frozen C1 runs before scoring; do not change their generation commits.

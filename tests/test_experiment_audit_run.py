@@ -196,6 +196,69 @@ class EngineeringAuditTests(unittest.TestCase):
         report = self.execute()
         self.assertIn("exported_attempt_total_mismatch", self.codes(report))
 
+    def partial_usage_retry(self):
+        """Write a realistic transport failure after one reported response."""
+        original = json.loads(self.path(0, "result").read_text(encoding="utf-8"))
+        prior = copy.deepcopy(original)
+        prior.update(status="failed", submitted_final_sql="", final_sql="", final_sql_source="",
+                     error_category="transient_api", llm_calls=2)
+        prior.pop("usage_unknown")
+        prior["trace"].update(tool_trace=[], sql_execution_trace=[], submitted_final_sql="")
+        prior["usage"].update(llm_calls=2, usage_complete=False, calls_without_usage=1)
+        prior["usage"]["calls"].append({"call": 2, "model": self.config["model"],
+                                        "status": "failed", "duration_seconds": 0.2, "usage": None})
+        write_json(self.path(0, "result"), prior)
+        write_json(self.path(0, "usage"), {"question_id": 0, "attempt": 1,
+                   "session_id": prior["session_id"], "usage": prior["usage"]})
+        result = copy.deepcopy(original)
+        result.update(attempt=2, session_id="session-0-after-transient-retry")
+        result.pop("usage_unknown")
+        result["trace"]["tool_stats"]["session_id"] = result["session_id"]
+        payload = json.loads(self.path(0, "input").read_text(encoding="utf-8"))
+        payload["attempt"] = 2
+        payload["config"].update(max_llm_calls=38, question_timeout_seconds=899)
+        write_json(self.run / "traces/0.attempt2.input.json", payload)
+        write_json(self.run / "traces/0.attempt2.result.json", result)
+        write_json(self.run / "traces/0.attempt2.usage.json", {"question_id": 0, "attempt": 2,
+                   "session_id": result["session_id"], "usage": result["usage"]})
+        prediction = {**self.questions[0], **result, "attempt_count": 2, "usage_unknown": True}
+        for metric in AGGREGATED:
+            known = sum(row.get(metric, row.get("usage", {}).get(metric)) for row in (prior, result))
+            prediction[metric] = known if metric in ("llm_calls", "duration_seconds") else None
+            prediction[metric + "_known"] = known
+        self.predictions[0] = prediction
+        self.save_predictions()
+
+    def test_partial_usage_then_success_preserves_known_totals_without_claiming_complete(self):
+        self.partial_usage_retry()
+        report = self.execute()
+        self.assertTrue(report["passed"], report["engineering_findings"])
+        self.assertFalse(report["summary"]["all_recorded_usage_complete"])
+        self.assertEqual(self.predictions[0]["llm_calls"], 3)
+        self.assertEqual(self.predictions[0]["duration_seconds"], 2.0)
+        self.assertEqual(self.predictions[0]["prompt_tokens_known"], 20)
+
+    def test_partial_usage_cannot_be_validated_as_complete_from_flat_subtotals(self):
+        self.partial_usage_retry()
+        self.predictions[0]["usage_unknown"] = False
+        for metric in AGGREGATED:
+            self.predictions[0][metric] = self.predictions[0][metric + "_known"]
+        self.save_predictions()
+        report = self.execute()
+        self.assertFalse(report["passed"])
+        self.assertIn("exported_attempt_total_mismatch", self.codes(report))
+        self.assertIn("exported_usage_unknown_flag_mismatch", self.codes(report))
+        token_errors = {row["metric"] for row in report["engineering_findings"]
+                        if row["code"] == "exported_attempt_total_mismatch"}
+        self.assertEqual(token_errors, set(AGGREGATED) - {"llm_calls", "duration_seconds"})
+
+    def test_legacy_null_totals_do_not_hide_false_usage_unknown_flag(self):
+        self.partial_usage_retry()
+        self.predictions[0]["usage_unknown"] = False
+        self.save_predictions()
+        report = self.execute()
+        self.assertEqual(self.codes(report), {"exported_usage_unknown_flag_mismatch"})
+
     def test_missing_attempt_duration_cannot_verify_cumulative_time_budget(self):
         result = json.loads(self.path(0, "result").read_text(encoding="utf-8"))
         result.pop("duration_seconds")

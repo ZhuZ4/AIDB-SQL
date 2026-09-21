@@ -16,13 +16,16 @@ were retained; subsequent infrastructure work builds on them.
 | P2 agent | Fixed 30-question smoke complete: 30 terminal records, 29 genuine submissions/executable SQL, official EX 20/30 (66.67%), 0 timeouts; one bounded model failure retained |
 | P2 persistence | Transactional question/attempt records, process isolation, code/data/index/runtime freeze, actual-interpreter PID handshake, request checkpoints, balance detection and resumption implemented; 51 offline checks across evaluation, worker, recovery, batch boundaries and real Windows process trees passed |
 | Per-run audit | Reusable generation-only audit passes the complete smoke artifacts: 30 sessions, 29 submissions and one legitimate failure, zero integrity errors or missing evidence; 19 targeted tampering/recovery tests passed |
-| P3 B0 | First complete run `B0_20260921_01`: official EX **180/300 (60.00%)**, 290 executable submissions, 10 missing submissions, zero timeouts. Full engineering audit passed. Second predeclared run `B0_20260921_02` is active in `F:/data/VSCodeproject/AIDB-SQL-B0`, with the identical frozen commit `5a82da5` and fingerprint |
+| P3 B0 | First complete run `B0_20260921_01`: official EX **180/300 (60.00%)**, 290 executable submissions, 10 missing submissions, zero timeouts. Original engineering audit passed; the stricter quota-stop review found one usage flag error (see below), without changing SQL/EX. Second predeclared run `B0_20260921_02` stopped on provider weekly quota exhaustion at **281/300 terminal records** (275 submissions, 6 semantic failures); 19 remain pending. It has no full-run score. Frozen commit `5a82da5` and fingerprint remain unchanged |
 | P4/P5 | B0 remains current best; no improvement claimed. First candidate, explicit output-role assignment in data-link, is frozen and pushed as `f60c286` on `dev_20260921_060334` after trace review and reading DIN-SQL/RESDSQL methods, ablations and official implementations. It passed 49 offline checks and is registered pending smoke/two matched full runs. See `methods/projection_roles_v1.md` |
 
 Full local evidence lives in `.local-services/experiments/` and
-`.local-services/column-index/`. The active Goal continues; this file is a checkpoint,
-not a completion claim. Every experimental run must bind a frozen commit and retain
-all failed/timeout/missing-submission records.
+`.local-services/column-index/`. Generation stopped at the user-authorized resource
+boundary on **2026-09-21 08:13:55 Asia/Shanghai**; no model requests are being sent.
+The provider reported a weekly quota reset at **2026-09-28 02:33 Asia/Shanghai**.
+The research plan is unfinished: matched repeats and candidate evaluation remain.
+See `RESOURCE_STOP_20260921.md` for the saved deliverables and resumption sequence.
+Every experimental run retains its frozen commit and all failure records.
 
 Smoke run `smoke_B0_20260921_01` binds commit `96a0084`, the full index and the pinned
 SQLite runtime. Its 66.67% EX is an engineering smoke result, not the 300-question B0.
@@ -52,3 +55,14 @@ Fifteen offline tests and a real read-only resume of the first B0 confirmed that
 completed files and the active repeat's global control remain unchanged. The main
 generation audit also checks candidate policy/skill hashes, with 28 offline tests;
 the frozen baseline generation code has not changed.
+
+Quota-stop review found that the frozen exporter could lose unknown usage from an
+earlier retry. B01 q960 has an incorrect `usage_unknown=false` flag, while its token
+complete totals already remain null. B02 q1209 also exposes known subtotals as complete
+token totals. Main state export and the independent audit now preserve this distinction;
+63 related state/audit/batch/worker checks passed, plus six repair-tool checks. A real
+B02 preview changed only q1209 accounting fields in a separate copy; original artifacts
+were untouched. The strict B01 review reports exactly one flag error and zero missing
+evidence. Its 180/300 score and all registered hashes remain valid. Restore frozen
+generation with `run_batch`, then repair metadata before evaluation as documented in
+`RESOURCE_STOP_20260921.md`; do not mix new accounting code into frozen model generation.

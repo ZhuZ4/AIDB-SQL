@@ -1,0 +1,96 @@
+{
+  "run_id": "B0_20260921_02",
+  "status": "stopped_insufficient_balance",
+  "is_complete_run": false,
+  "official_ex": null,
+  "scoring_performed": false,
+  "expected_questions": 300,
+  "terminal_questions": 281,
+  "pending_questions": 19,
+  "generation_status_counts": {
+    "succeeded": 275,
+    "failed": 6,
+    "pending": 19
+  },
+  "submitted_final_sql_count": 275,
+  "attempts": 283,
+  "usage": {
+    "attempt_count": 283,
+    "attempt_results_present": 283,
+    "llm_calls": 2693,
+    "per_call_records": 2693,
+    "calls_with_usage": 2691,
+    "calls_without_usage": 2,
+    "usage_complete": false,
+    "attempts_with_incomplete_usage": 2,
+    "tokens_estimated": false,
+    "tokens": {
+      "prompt_tokens": {
+        "known_subtotal": 47757349,
+        "complete_total": null,
+        "attempts_with_unknown_or_incomplete_usage": 2
+      },
+      "completion_tokens": {
+        "known_subtotal": 384718,
+        "complete_total": null,
+        "attempts_with_unknown_or_incomplete_usage": 2
+      },
+      "total_tokens": {
+        "known_subtotal": 48142067,
+        "complete_total": null,
+        "attempts_with_unknown_or_incomplete_usage": 2
+      },
+      "cached_tokens": {
+        "known_subtotal": 42571392,
+        "complete_total": null,
+        "attempts_with_unknown_or_incomplete_usage": 2
+      },
+      "reasoning_tokens": {
+        "known_subtotal": 0,
+        "complete_total": null,
+        "attempts_with_unknown_or_incomplete_usage": 2
+      }
+    },
+    "api_cost": {
+      "known_subtotal": null,
+      "complete_total": null,
+      "attempts_with_available_cost": 0
+    }
+  },
+  "manifest_binding": {
+    "fingerprint": "52763b11b02e3da40d873f566e8562ac439ca0807b8659595e991aa7c001dd07",
+    "git_commit": "5a82da5ad0e2ad301f33bb8f5afdbdba46030fa4",
+    "expected_questions": 300,
+    "questions_sha256": "59f7887a0fcedc71024d13366283fd2420faf50f016f8d736618f103035f0b8b",
+    "subset": "all"
+  },
+  "quota_stop": {
+    "question_id": 93,
+    "attempt": 1,
+    "provider_status_code": 429,
+    "provider_error_type": "RateLimitError",
+    "error_category": "insufficient_balance",
+    "stop_reason": "stopped_insufficient_balance",
+    "provider_message": "litellm.RateLimitError: RateLimitError: OpenAIException - Your token-plan 1-week quota has been exhausted. The quota will reset at 09-27 18:33:00 UTC.",
+    "reset_time_as_reported_by_provider": "09-27 18:33:00 UTC",
+    "attempt_result_preserved": true,
+    "state_question_pending": true,
+    "resume_run_id": "B0_20260921_02",
+    "submitted_final_sql_present": false,
+    "resume_started_by_audit": false,
+    "reset_time_inferred_current_year_utc": "2026-09-27T18:33:00Z",
+    "reset_time_asia_shanghai": "2026-09-28T02:33:00+08:00",
+    "provider_message_has_no_year": true
+  },
+  "partial_audit": {
+    "status": "partial_resource_stop_with_discrepancies",
+    "checks_passed": 26,
+    "checks_total": 27,
+    "is_300_question_engineering_pass": false,
+    "discrepancy": "q1209 historic exporter lost prior-attempt unknown usage; known subtotals and SQL are preserved. Complete token totals in this summary are reconstructed from all attempts and stay null.",
+    "sha256": "5101730223219f8b3caf913fcc7dbbe029dcb9ee1bf73c8f5aaf6c0bb71153a2"
+  },
+  "predictions_sha256": "cca67d13074426b5eb2c80e288d7cb19879070d48fe32cbb9a41c185581c3909",
+  "next_step": "After resource restoration and task resumption, frozen run_batch generates only remaining 19. Main metadata repair preserves original export, then audit/evaluation/register. No model polling or automatic restart scheduled.",
+  "interpretation": "Partial second predeclared B0 run. No full EX, paired comparison, candidate improvement or completed research claim. C1 remains pending; best stays B0 first complete run."
+}

@@ -11,6 +11,24 @@ import time
 from experiments.process_control import process_identity
 
 TERMINAL = {"succeeded", "failed", "timeout"}
+TOKEN_METRICS = {"prompt_tokens", "completion_tokens", "total_tokens", "cached_tokens", "reasoning_tokens"}
+
+
+def _attempt_tokens_incomplete(result):
+    """Worker token sums are known subtotals when a response has no usage."""
+    if result.get("usage_unknown", False):
+        return True
+    usage = result.get("usage")
+    if not isinstance(usage, dict):
+        return False
+    if usage.get("usage_complete") is False or usage.get("calls_without_usage", 0):
+        return True
+    calls = usage.get("calls")
+    return isinstance(calls, list) and any(
+        not isinstance(call, dict) or not isinstance(call.get("usage"), dict)
+        or any(call["usage"].get(key) is None for key in
+               ("prompt_token_count", "candidates_token_count", "total_token_count"))
+        for call in calls)
 
 
 def checkpoint_usage(path: Path):
@@ -187,14 +205,18 @@ class State:
                 continue
             value = {**inputs[row["question_id"]], **json.loads(row["result_json"])}
             value.update(question_id=row["question_id"], attempt=row["attempt"], run_id=run_id)
-            attempts = self.db.execute("SELECT result_json FROM attempts WHERE run_id=? AND question_id=? AND result_json IS NOT NULL", (run_id, row["question_id"])).fetchall()
+            attempts = [json.loads(a[0]) for a in self.db.execute(
+                "SELECT result_json FROM attempts WHERE run_id=? AND question_id=? AND result_json IS NOT NULL",
+                (run_id, row["question_id"])).fetchall()]
             value["attempt_count"] = len(attempts)
+            tokens_incomplete = any(_attempt_tokens_incomplete(a) for a in attempts)
             for metric in ("llm_calls", "prompt_tokens", "completion_tokens", "total_tokens", "cached_tokens", "reasoning_tokens", "duration_seconds"):
-                values = [json.loads(a[0]).get(metric, json.loads(a[0]).get("usage", {}).get(metric)) for a in attempts]
+                values = [a.get(metric, a.get("usage", {}).get(metric)) for a in attempts]
                 known_total = sum(v for v in values if v is not None)
-                value[metric] = known_total if all(v is not None for v in values) else None
+                complete = all(v is not None for v in values) and not (metric in TOKEN_METRICS and tokens_incomplete)
+                value[metric] = known_total if complete else None
                 value[metric + "_known"] = known_total
-            value["usage_unknown"] = any(json.loads(a[0]).get("usage_unknown", False) for a in attempts)
+            value["usage_unknown"] = tokens_incomplete
             rows.append(value)
         temp = path.with_suffix(".tmp")
         with temp.open("w", encoding="utf-8", newline="\n") as stream:

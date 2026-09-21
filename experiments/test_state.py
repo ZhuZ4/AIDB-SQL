@@ -69,6 +69,50 @@ class RecoveryTests(unittest.TestCase):
             self.state.finish("run", 7, {"status": "failed", "submitted_final_sql": "", "llm_calls": calls}, pending=pending)
         self.assertEqual(self.state.export("run", self.questions, self.root / "predictions.jsonl")[0]["llm_calls"], 8)
 
+    def test_partly_reported_failed_attempt_keeps_retry_token_totals_unknown(self):
+        # Actual worker shape: token fields are reported subtotals even though
+        # another provider request failed, with no top-level usage_unknown flag.
+        reported = {"prompt_token_count": 10, "candidates_token_count": 5, "total_token_count": 15}
+        usage = {"llm_calls": 2, "prompt_tokens": 10, "completion_tokens": 5,
+                 "total_tokens": 15, "cached_tokens": 0, "reasoning_tokens": 0,
+                 "usage_complete": False, "calls_without_usage": 1,
+                 "calls": [{"usage": reported}, {"usage": None}]}
+        failed = {"status": "failed", "submitted_final_sql": "", "error_category": "transient_api",
+                  "llm_calls": 2, "prompt_tokens": 10, "completion_tokens": 5,
+                  "duration_seconds": 2.0, "usage": usage}
+        self.state.start("run", 7, 900)
+        self.state.finish("run", 7, failed, pending=True)
+        success = {"status": "succeeded", "submitted_final_sql": "SELECT 2", "llm_calls": 1,
+                   "prompt_tokens": 10, "completion_tokens": 5, "duration_seconds": 1.0,
+                   "usage": {**usage, "llm_calls": 1, "usage_complete": True,
+                             "calls_without_usage": 0, "calls": [{"usage": reported}]}}
+        self.state.start("run", 7, 900)
+        self.state.finish("run", 7, success)
+        result, = self.state.export("run", self.questions, self.root / "predictions.jsonl")
+        self.assertEqual(result["attempt_count"], 2)
+        self.assertTrue(result["usage_unknown"])
+        self.assertTrue(result["usage"]["usage_complete"])  # Last attempt alone.
+        for metric, known in (("prompt_tokens", 20), ("completion_tokens", 10),
+                              ("total_tokens", 30), ("cached_tokens", 0), ("reasoning_tokens", 0)):
+            self.assertIsNone(result[metric], metric)
+            self.assertEqual(result[metric + "_known"], known, metric)
+        self.assertEqual(result["llm_calls"], 3)
+        self.assertEqual(result["duration_seconds"], 3.0)
+        original = json.loads(self.state.db.execute("SELECT result_json FROM attempts WHERE attempt=1").fetchone()[0])
+        self.assertEqual(original, failed)  # Export never rewrites attempt evidence.
+
+    def test_explicit_unknown_flag_overrides_nonnull_token_subtotals_only(self):
+        self.state.start("run", 7, 900)
+        self.state.finish("run", 7, {"status": "failed", "submitted_final_sql": "", "usage_unknown": True,
+                                    "llm_calls": 2, "duration_seconds": 4.0, "prompt_tokens": 12,
+                                    "usage": {"usage_complete": True}})
+        result, = self.state.export("run", self.questions, self.root / "predictions.jsonl")
+        self.assertTrue(result["usage_unknown"])
+        self.assertIsNone(result["prompt_tokens"])
+        self.assertEqual(result["prompt_tokens_known"], 12)
+        self.assertEqual(result["llm_calls"], 2)
+        self.assertEqual(result["duration_seconds"], 4.0)
+
     def test_interrupted_worker_restores_pre_request_call_checkpoint(self):
         self.state.start("run", 7, 900)
         atomic_json(self.root / "traces" / "7.attempt1.usage.json", {

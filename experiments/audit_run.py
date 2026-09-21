@@ -537,14 +537,23 @@ def audit_run(dataset_dir: Path, run_dir: Path, *, subset: str = "all",
                 if result.get("error_category") in external_stops:
                     audit.note("observation", "observed_resume_after_external_stop", stop_category=result["error_category"], **attempt_context)
         if len(attempts) == last_attempt:
+            # Independently derive incompleteness from original per-call ledgers
+            # and worker flags, never from the exported or last-attempt subtotal.
+            tokens_incomplete = (
+                any(result.get("usage_unknown", False)
+                    or (isinstance(result.get("usage"), dict)
+                        and result["usage"].get("usage_complete") is False)
+                    for result in attempts)
+                or any(not check["usage_complete"] for check in usage_checks))
             for metric in AGGREGATED:
                 values = [_attempt_metric(result, metric) for result in attempts]
                 audit.check(all(value is None or number(value) for value in values), "invalid_aggregate_metric", metric=metric, **context)
                 known = sum(value for value in values if number(value))
-                expected = known if all(value is not None for value in values) else None
+                complete = all(value is not None for value in values) and not (metric in METRICS and tokens_incomplete)
+                expected = known if complete else None
                 audit.check(equal_number(prediction.get(metric), expected), "exported_attempt_total_mismatch", metric=metric, **context)
                 audit.check(equal_number(prediction.get(metric + "_known"), known), "exported_known_total_mismatch", metric=metric, **context)
-            audit.check(prediction.get("usage_unknown", False) == any(result.get("usage_unknown", False) for result in attempts), "exported_usage_unknown_flag_mismatch", **context)
+            audit.check(prediction.get("usage_unknown", False) == tokens_incomplete, "exported_usage_unknown_flag_mismatch", **context)
         audit.check(used_calls <= max_calls, "question_llm_budget_exceeded", **context)
         audit.check(used_seconds <= max_seconds + timing_tolerance_seconds * max(1, last_attempt), "question_wall_time_budget_exceeded", **context)
         details.append({"question_id": qid, "db_id": question["db_id"], "status": prediction.get("status"),
