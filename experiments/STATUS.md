@@ -33,6 +33,17 @@ See `DSF_20260922_B0_01_summary.json`, `DEEPSEEK_OFFICIAL_20260922.md`, and
 `deepseek_official_cost_notes.md`. This first new-provider baseline establishes a
 reference point; it does not demonstrate a method improvement.
 
+First-run diagnosis also found a derived event-record issue in the frozen agent:
+batched SQL responses were assigned to the most recent pending attempt instead of
+their tool-call ID. In q26 and q95 this swapped row counts or accepted/rejected
+labels in `sql_attempt_records`. Raw ID-bearing `tool_trace`, the native execution
+ledger, accepted submissions, and official EX remain intact; the engineering audit
+uses those authoritative sources. Main now matches unique call IDs and leaves
+unidentified/ambiguous records pending. Eight offline event tests cover the
+correction, including late responses without IDs. Historical artifacts and both
+frozen baseline runs retain their original code and records; this diagnostic fix
+is not a retrieval or SQL-method gain.
+
 The results below describe the preserved earlier Token Plan series. Its stopped
 281-question repeat is not resumed with the new provider and is not combined with
 the new series. The historical best remains 180/300 within that older series.

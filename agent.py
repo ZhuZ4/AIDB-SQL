@@ -1624,6 +1624,7 @@ class AgentService:
                                 sql_attempts.append(quoted)
                                 sql_attempt_records.append({
                                     "sql": quoted,
+                                    "tool_call_id": getattr(fc, "id", None),
                                     "state": "pending",
                                     "row_count": 0,
                                 })
@@ -1645,16 +1646,14 @@ class AgentService:
                                 _safe_print(msg, end="", flush=True)
 
                         if fr.name == "sql_db_query" and fr.response and sql_attempt_records:
-                            # 把状态/行数回填到最近一条尚未填的记录
-                            target = None
-                            for rec in reversed(sql_attempt_records):
-                                if rec["state"] == "pending":
-                                    target = rec
-                                    break
-                            if target is None:
-                                target = sql_attempt_records[-1]
-                            target["state"] = AdkAgent._classify_sql_query_result(resp_str)
-                            target["row_count"] = AdkAgent._extract_row_count_from_resp(resp_str)
+                            # 同一事件可以宣布多条 SQL，响应顺序不能用于猜测归属。
+                            # 无 ID 时，即使只有一条 pending，也无法排除迟到的重复响应。
+                            response_id = getattr(fr, "id", None)
+                            matches = [rec for rec in sql_attempt_records
+                                       if response_id and rec["tool_call_id"] == response_id]
+                            if len(matches) == 1 and matches[0]["state"] == "pending":
+                                matches[0]["state"] = AdkAgent._classify_sql_query_result(resp_str)
+                                matches[0]["row_count"] = AdkAgent._extract_row_count_from_resp(resp_str)
 
                     # -- 文本 --
                     elif hasattr(part, "text") and part.text:

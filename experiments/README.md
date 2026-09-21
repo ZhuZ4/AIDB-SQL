@@ -56,6 +56,14 @@ provides scored predictions; generated text and heuristic fallback SQL are exclu
 The `generation/` inputs contain only question ID, database ID, question and evidence.
 Gold SQL lives in sibling `evaluation/` files and must never be passed to the worker.
 
+For per-query diagnostics, pair raw tool calls/responses by ID and consult the native
+`sql_execution_trace`. Frozen runs through `58de3cb` can misassign batched response
+states/counts in the derived `sql_attempt_records`; this does not change explicit
+submissions or official scores. Main records the tool-call ID and only fills a
+unique pending match. Missing, duplicated, or unrecognized IDs leave the derived
+record pending rather than guessing a response association. Original run artifacts
+are retained unchanged.
+
 Business SQL generation and evaluation both use the pinned official SQLite 3.40.1
 Windows DLL. On the original Python SQLite 3.51.0 runtime, q701's unchanged gold SQL
 exceeded 180 seconds; the pinned runtime completed both executions in 0.39 seconds.
