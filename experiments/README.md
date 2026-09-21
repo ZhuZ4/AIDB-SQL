@@ -8,7 +8,10 @@ remain historical artifacts; changing provider/model cannot resume that frozen r
 The first official-provider full baseline `DSF_20260922_B0_01` scored 184/300
 (61.33% EX), passed the full engineering audit, and produced its immutable 300-row
 export under `.local-services/experiments/deliverables/DSF_20260922_B0_01/`.
-The second predeclared repeat is running from the same frozen commit `58de3cb`.
+The second predeclared repeat stopped on official-provider insufficient balance
+after 66 terminal records, with 234 never-started questions pending. Both runs use
+the same frozen commit `58de3cb`; see `RESOURCE_STOP_DEEPSEEK_20260922.md` for the
+partial export and exact resumption boundary.
 See `STATUS.md` for the current series and the preserved historical results.
 
 The fixed manifest selects 300 development questions and a deterministic 30-question

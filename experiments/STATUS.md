@@ -1,6 +1,15 @@
 # Autonomous mini-dev execution status
 
-Latest update, 2026-09-22: the user supplied a DeepSeek official API key and changed
+Latest update, 2026-09-22: the official-provider second baseline stopped at
+**04:34:31 Asia/Shanghai** on explicit **402 / Insufficient Balance**.
+It has **66 terminal records (64 submissions, two semantic failures)** and
+**234 never-started pending questions**. The supervisor and workers have exited;
+no new model requests, balance probes, automatic recharge, or restart are scheduled.
+The first full baseline remains 184/300 (61.33%). Partial delivery, the 23-check
+stop audit, and exact frozen resumption instructions are recorded in
+`RESOURCE_STOP_DEEPSEEK_20260922.md`. The research objective remains incomplete.
+
+Provider transition history: the user supplied a DeepSeek official API key and changed
 the endpoint. Authenticated model/balance checks and a two-request tool round trip
 passed. The official V4.1-Flash API name is `deepseek-flash`; `.env` now uses that
 name. Provider adaptation is frozen at `58de3cb344fcc2337ea01a168060065a8dd2cc7c`
@@ -26,7 +35,8 @@ monetary cost remain unknown.
 The second predeclared full baseline `DSF_20260922_B0_02` started at **2026-09-22
 04:12:16 Asia/Shanghai**, after the first run's evaluation, audit, and export.
 It uses the identical clean frozen `AIDB-SQL-DSF-B0` worktree, commit `58de3cb`,
-configuration, provider/model, data, index, and budgets. Both full baselines must
+configuration, provider/model, data, index, and budgets. The second run is now
+resource-stopped as described above. Both full baselines must
 finish and pass audit before candidate selection/registration in the new series.
 Live progress and process identity are persisted under `.local-services/experiments/`.
 See `DSF_20260922_B0_01_summary.json`, `DEEPSEEK_OFFICIAL_20260922.md`, and

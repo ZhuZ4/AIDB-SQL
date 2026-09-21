@@ -1,0 +1,204 @@
+{
+  "created_at_utc": "2026-09-21T20:41:32.270116+00:00",
+  "verification_result": "verified_partial_stop_not_complete_run_pass",
+  "run_id": "DSF_20260922_B0_02",
+  "git_commit": "58de3cb344fcc2337ea01a168060065a8dd2cc7c",
+  "model": "deepseek-flash",
+  "provider_endpoint_sha256": "12b8deaccc34b32757dbb1497e029da0c2e7b26ffa86b9c926c08cb4692f4508",
+  "run_fingerprint": "ed6e7d98e630bb6b140d5d5561e5264b53849e15a1e0b3a82eb4d609a8ce172b",
+  "phase": "stopped_insufficient_balance",
+  "counts": {
+    "selected": 300,
+    "terminal": 66,
+    "succeeded": 64,
+    "failed": 2,
+    "timeout": 0,
+    "pending": 234,
+    "running": 0,
+    "predictions": 66,
+    "submitted": 64,
+    "no_submission": 2,
+    "attempts": 66,
+    "unique_sessions": 66
+  },
+  "no_submission_question_ids": [
+    1175,
+    1179
+  ],
+  "stop": {
+    "question_id": 1238,
+    "attempt": 1,
+    "failed_model_call": 9,
+    "http_status": 402,
+    "error_type": "BadRequestError",
+    "message": "litellm.BadRequestError: OpenAIException - Insufficient Balance",
+    "submission_succeeded_before_error": true,
+    "submission_call_event_index": 22,
+    "submission_response_event_index": 23,
+    "submission_tool_call_id": "call_00_tvKcJfLrkZf9IxqdFeMK9229",
+    "submitted_sql_sha256": "d25a8a9829c31d566e4975accbdd2eb6cadf94884c6eaa0f4bdd1242a8c1c275",
+    "submitted_sql_length": 190,
+    "generation_terminal_status": "succeeded",
+    "error_category": "insufficient_balance",
+    "ex": null,
+    "timing_interpretation": "The accepted submission is the final tool response in the trace; the next model request failed. This is a post-submission continuation, expected to produce narration, but no response was returned so its hypothetical content is unknown.",
+    "resume_this_question": false
+  },
+  "progress_discrepancy": {
+    "authoritative_terminal_count": 66,
+    "progress_file_completed": 65,
+    "progress_file_last_question_id": 1235,
+    "actual_last_terminal_question_id": 1238,
+    "cause": "Frozen run_batch.py STOP branch (lines 242-249) saves the result, phase, predictions and next_action then returns before the normal progress.json update (lines 259-263). It is stale progress, not a missing 66th result.",
+    "frozen_runner_sha256": "f75aba57e1c76dc2d072c40a617002d3d0bd94e0358b70c311b2f52e0e450ebc"
+  },
+  "usage": {
+    "actual_attempt_count": 66,
+    "unique_sessions": 66,
+    "llm_calls": {
+      "known_total": 623,
+      "complete_total": 623
+    },
+    "calls_with_reported_usage": 622,
+    "calls_without_reported_usage": 1,
+    "call_status_counts": {
+      "completed": 622,
+      "failed": 1
+    },
+    "usage_complete": false,
+    "unreported_requests": [
+      {
+        "question_id": 1238,
+        "attempt": 1,
+        "call": 9,
+        "status": "failed",
+        "exception_type": "BadRequestError"
+      }
+    ],
+    "worker_duration_seconds": {
+      "known_total": 1322.4210000001767,
+      "complete_total": 1322.4210000001767
+    },
+    "api_cost": null,
+    "api_cost_available": false,
+    "currency": null,
+    "tokens_estimated": false,
+    "prompt_tokens": {
+      "known_total": 11058940,
+      "complete_total": null
+    },
+    "completion_tokens": {
+      "known_total": 91005,
+      "complete_total": null
+    },
+    "total_tokens": {
+      "known_total": 11149945,
+      "complete_total": null
+    },
+    "cached_tokens": {
+      "known_total": 10068725,
+      "complete_total": null
+    },
+    "uncached_prompt_tokens": {
+      "known_total": 990215,
+      "complete_total": null
+    },
+    "reasoning_tokens": {
+      "known_reported_total": null,
+      "complete_total": null,
+      "calls_with_reported_reasoning": 0,
+      "calls_without_reported_reasoning": 623,
+      "exported_tracker_default_known_total": 0,
+      "note": "No captured per-call usage reports a reasoning/thought field. Tracker default zero is not a provider-confirmed zero."
+    }
+  },
+  "budget": {
+    "max_llm_calls_per_question": 40,
+    "question_timeout_seconds": 900,
+    "sql_timeout_seconds": 30,
+    "concurrency": 1,
+    "max_api_cost": null,
+    "max_total_api_calls": null,
+    "observed_max_calls_per_question": 12,
+    "observed_max_worker_seconds_per_question": 40.42200000002049,
+    "stop_is_provider_balance_boundary_not_model_call_budget": true
+  },
+  "checks": {
+    "fixed_300_questions_and_exact_prefix": true,
+    "state_authoritative_66_terminal_234_pending": true,
+    "pending_all_never_started": true,
+    "state_has_no_running_worker_or_lease": true,
+    "all_66_actual_attempts_ended": true,
+    "run_stop_identity": true,
+    "frozen_provider_series_identity": true,
+    "manifest_fingerprint": true,
+    "generation_hash_binding": true,
+    "raw_attempt_artifact_counts_match": true,
+    "raw_inputs_results_usage_state_predictions_match": true,
+    "all_final_submissions_raw_tool_bound": true,
+    "unique_66_sessions": true,
+    "one_unreported_balance_failure_request": true,
+    "reasoning_not_reported": true,
+    "real_402_stop_reason_consistent": true,
+    "submission_before_failure_preserved": true,
+    "stale_progress_65_correctly_identified": true,
+    "frozen_runner_source_bound": true,
+    "stop_branch_returns_before_progress_update": true,
+    "no_official_score_or_full_engineering_pass": true,
+    "state_logical_snapshot_unchanged": true,
+    "read_source_bytes_and_mtime_unchanged": true
+  },
+  "scope": {
+    "partial_run_only": true,
+    "complete_300_run_pass": false,
+    "official_ex_available": false,
+    "official_ex": null,
+    "full_engineering_audit_pass": null,
+    "gold_answers_read": false,
+    "api_calls": 0,
+    "business_sql_executions": 0,
+    "retries": 0,
+    "balance_reprobes": 0,
+    "state_connection_mode": "ro with explicit BEGIN/rollback",
+    "source_artifacts_modified": false,
+    "prior_provider_histories_combined": false,
+    "os_process_enumeration_performed": false,
+    "os_process_termination_evidence": "Parent independently records supervisor/worker process termination; this audit verifies no running question, worker identity, or lease in state."
+  },
+  "limitations": [
+    "No completed official scoring exists; no EX or accuracy is reported for this partial run.",
+    "The raw attempt token fields for q1238 are known subtotals; complete token totals are null because call 9 has no usage. No provider charge is inferred for this failed request.",
+    "This verifies stopped-run artifacts and accounting, not a complete 300-question engineering audit or a new model attempt."
+  ],
+  "artifact_type": "independent_partial_resource_stop_summary",
+  "resume_boundary": {
+    "pending_count": 234,
+    "all_pending_never_started": true,
+    "first_pending_question_id": 1241,
+    "terminal_questions_must_not_be_retried": true,
+    "preserve_run_id": "DSF_20260922_B0_02",
+    "preserve_fingerprint": "ed6e7d98e630bb6b140d5d5561e5264b53849e15a1e0b3a82eb4d609a8ce172b",
+    "preserve_frozen_commit": "58de3cb344fcc2337ea01a168060065a8dd2cc7c",
+    "no_resume_performed": true,
+    "requires_external_resource_restoration": true
+  },
+  "partial_audit": {
+    "path": "F:\\data\\VSCodeproject\\AIDB-SQL\\.local-services\\experiments\\runs\\DSF_20260922_B0_02\\partial_stop_audit.json",
+    "sha256": "fee69d2af509a8016566a6f817aa9e550bf7e6d0152473370a7bedad17234219"
+  },
+  "source_binding": {
+    "file_count": 206,
+    "sha256_of_path_hash_size_mtime_map": "1492ce9a5de4eafbebb5aebaa32e0ce2b248f6f50e2ab154d372c697ea88c01f",
+    "state_logical_snapshot_sha256": "8f42617f095503f88cd0b43ffcbcc147c0a81addd5c8dc0876719740bdd7e7ce"
+  },
+  "source_hashes": {
+    "F:\\data\\VSCodeproject\\AIDB-SQL\\.local-services\\experiments\\runs\\DSF_20260922_B0_02\\run_manifest.json": "53b9908ecfcb688dd611753ca828574b4044d8e1e5de8debdc782bbb3bd87ecc",
+    "F:\\data\\VSCodeproject\\AIDB-SQL\\.local-services\\experiments\\runs\\DSF_20260922_B0_02\\progress.json": "dd909745117f5c718aa0aac0f56b06286faee578328310e258bb0dc405d7de8f",
+    "F:\\data\\VSCodeproject\\AIDB-SQL\\.local-services\\experiments\\runs\\DSF_20260922_B0_02\\next_action.json": "94d9c72121a5f49859e374ff2e630997b39e338995f9b44c7c5b1103d0f9c785",
+    "F:\\data\\VSCodeproject\\AIDB-SQL\\.local-services\\experiments\\runs\\DSF_20260922_B0_02\\predictions.jsonl": "ed628a5a2fd51ba1431a5f5f04d989b1b2e5df8367589cb92913474911cc8579",
+    "F:\\data\\VSCodeproject\\AIDB-SQL\\experiments\\mini_dev_300_manifest.json": "a9ebfab6532b6c4fd94e6ee87e9d797673b770a82389c9584e772c0e409017ae",
+    "F:\\data\\VSCodeproject\\AIDB-SQL\\.local-services\\experiments\\dataset\\dataset_manifest.json": "dcb779111c283a9b2f6078ea7ca465408ad8653a3c797b763fbf290a5a20619f",
+    "F:\\data\\VSCodeproject\\AIDB-SQL\\.local-services\\experiments\\dataset\\generation\\questions.jsonl": "59f7887a0fcedc71024d13366283fd2420faf50f016f8d736618f103035f0b8b",
+    "F:\\data\\VSCodeproject\\AIDB-SQL-DSF-B0\\experiments\\run_batch.py": "f75aba57e1c76dc2d072c40a617002d3d0bd94e0358b70c311b2f52e0e450ebc"
+  }
+}
